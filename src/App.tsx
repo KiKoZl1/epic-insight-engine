@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import AppDashboard from "./pages/AppDashboard";
 import ProjectDetail from "./pages/ProjectDetail";
+import ReportDashboard from "./pages/ReportDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,6 +26,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/app" element={<ProtectedRoute><AppDashboard /></ProtectedRoute>} />
             <Route path="/app/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
+            <Route path="/app/projects/:id/reports/:reportId" element={<ProtectedRoute><ReportDashboard /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
