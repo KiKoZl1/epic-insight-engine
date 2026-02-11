@@ -3,9 +3,12 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { BarChart3, ArrowLeft, Upload, FileText, Clock } from "lucide-react";
+import { BarChart3, ArrowLeft, FileText, Clock } from "lucide-react";
+import ZipUploader from "@/components/ZipUploader";
+import type { ProcessingResult } from "@/lib/parsing/zipProcessor";
+import type { MetricsResult } from "@/lib/parsing/metricsEngine";
 
 interface Project {
   id: string;
@@ -30,20 +33,62 @@ export default function ProjectDetail() {
   const [project, setProject] = useState<Project | null>(null);
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
+  const fetchData = async () => {
     if (!id) return;
-    const fetchData = async () => {
-      const [projRes, uploadsRes] = await Promise.all([
-        supabase.from("projects").select("id, name, island_code").eq("id", id).single(),
-        supabase.from("uploads").select("id, file_name, status, csv_count, created_at, reports(id, status)").eq("project_id", id).order("created_at", { ascending: false }),
-      ]);
-      if (projRes.data) setProject(projRes.data);
-      if (uploadsRes.data) setUploads(uploadsRes.data as any);
-      setLoading(false);
-    };
-    fetchData();
-  }, [id]);
+    const [projRes, uploadsRes] = await Promise.all([
+      supabase.from("projects").select("id, name, island_code").eq("id", id).single(),
+      supabase.from("uploads").select("id, file_name, status, csv_count, created_at, reports(id, status)").eq("project_id", id).order("created_at", { ascending: false }),
+    ]);
+    if (projRes.data) setProject(projRes.data);
+    if (uploadsRes.data) setUploads(uploadsRes.data as any);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchData(); }, [id]);
+
+  const handleUploadComplete = async (result: ProcessingResult, metrics: MetricsResult) => {
+    if (!user || !id) return;
+    setSaving(true);
+
+    try {
+      // Create upload record
+      const { data: uploadRow, error: uploadErr } = await supabase.from("uploads").insert({
+        project_id: id,
+        user_id: user.id,
+        file_name: `upload_${new Date().toISOString().slice(0, 10)}.zip`,
+        status: "processed",
+        csv_count: result.csvCount,
+        warnings: result.logs.filter(l => l.type === 'warning').map(l => l.message) as any,
+      }).select().single();
+
+      if (uploadErr || !uploadRow) throw uploadErr;
+
+      // Create report
+      const { data: reportRow, error: reportErr } = await supabase.from("reports").insert({
+        project_id: id,
+        upload_id: uploadRow.id,
+        user_id: user.id,
+        status: "ready",
+        parsed_data: result.datasets as any,
+        metrics: { kpis: metrics.kpis, timeseries: metrics.timeseries, rankings: metrics.rankings } as any,
+        diagnostics: metrics.diagnostics as any,
+      }).select().single();
+
+      if (reportErr || !reportRow) throw reportErr;
+
+      toast({ title: "Relatório gerado!", description: `${result.csvCount} CSVs processados, ${result.totalRows} linhas.` });
+      
+      // Refresh list & navigate to report
+      await fetchData();
+      navigate(`/app/projects/${id}/reports/${reportRow.id}`);
+    } catch (err: any) {
+      toast({ title: "Erro ao salvar", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -77,27 +122,26 @@ export default function ProjectDetail() {
           <ArrowLeft className="h-4 w-4" /> Voltar aos projetos
         </Link>
 
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="font-display text-2xl font-bold">{project.name}</h1>
-            {project.island_code && <p className="text-sm text-muted-foreground">Código: {project.island_code}</p>}
-          </div>
-          <Button disabled>
-            <Upload className="h-4 w-4 mr-2" /> Upload ZIP
-          </Button>
+        <div className="mb-8">
+          <h1 className="font-display text-2xl font-bold">{project.name}</h1>
+          {project.island_code && <p className="text-sm text-muted-foreground">Código: {project.island_code}</p>}
         </div>
 
+        {/* Upload Section */}
+        <div className="mb-10">
+          <h2 className="font-display text-lg font-semibold mb-4">Novo Upload</h2>
+          <ZipUploader onComplete={handleUploadComplete} disabled={saving} />
+          {saving && (
+            <p className="text-sm text-muted-foreground mt-2 animate-pulse">Salvando relatório...</p>
+          )}
+        </div>
+
+        {/* Upload History */}
+        <h2 className="font-display text-lg font-semibold mb-4">Histórico de Uploads</h2>
         {uploads.length === 0 ? (
-          <Card className="text-center py-16">
+          <Card className="text-center py-12">
             <CardContent>
-              <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="font-display text-lg font-semibold mb-2">Nenhum upload ainda</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Faça upload do ZIP exportado do painel da Epic para gerar seu primeiro relatório.
-              </p>
-              <Button disabled>
-                <Upload className="h-4 w-4 mr-2" /> Upload ZIP (em breve)
-              </Button>
+              <p className="text-sm text-muted-foreground">Nenhum upload ainda. Use a área acima para enviar seu primeiro ZIP.</p>
             </CardContent>
           </Card>
         ) : (
