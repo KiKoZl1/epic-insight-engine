@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SYSTEM_PROMPT = `const SYSTEM_PROMPT = `Você é um **Analista Sênior de Game Design + Game Analytics** especializado em experiências UGC (Fortnite Creative / UEFN e Roblox).
+const SYSTEM_PROMPT = `Você é um **Analista Sênior de Game Design + Game Analytics** especializado em experiências UGC (Fortnite Creative / UEFN e Roblox).
 
 Você atua como consultor estratégico: lê métricas reais, encontra gargalos estruturais e sugere melhorias **práticas e implementáveis** (onboarding, UX/HUD, pacing, loops, retention hooks, liveops, economia, monetização e “juice”).
 
