@@ -17,9 +17,11 @@ interface RankingTableProps {
 }
 
 function defaultFormatter(v: number): string {
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + "M";
-  if (v >= 1_000) return (v / 1_000).toFixed(1) + "K";
-  return v.toLocaleString("pt-BR");
+  const n = Number(v);
+  if (isNaN(n)) return "—";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+  return n.toLocaleString("pt-BR");
 }
 
 export function RankingTable({ title, icon: Icon, items, valueFormatter = defaultFormatter, barColor = "bg-primary" }: RankingTableProps) {

@@ -176,8 +176,8 @@ export default function DiscoverTrendsReport() {
         <KpiCard icon={ThumbsUp} label="Rec-to-Play" value={pct(kpis.recToPlayRatio)} />
       </div>
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title="Top 10 D1 Retention" icon={TrendingUp} items={rankings.topRetentionD1 || []} valueFormatter={(v) => pct(v)} />
-        <RankingTable title="Top 10 D7 Retention" icon={TrendingUp} items={rankings.topRetentionD7 || []} valueFormatter={(v) => pct(v)} />
+        <RankingTable title="Top 10 D1 Retention" icon={TrendingUp} items={rankings.topRetentionD1 || []} valueFormatter={(v) => pct(Number(v))} />
+        <RankingTable title="Top 10 D7 Retention" icon={TrendingUp} items={rankings.topRetentionD7 || []} valueFormatter={(v) => pct(Number(v))} />
       </div>
       <AiNarrative text={getNarrative(3)} />
 
@@ -206,7 +206,7 @@ export default function DiscoverTrendsReport() {
         description="Qualidade individual das ilhas — tempo, favoritos e recomendações"
       />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title="Top Avg Minutes/Player" icon={Clock} items={rankings.topAvgMinutesPerPlayer || []} valueFormatter={(v) => v.toFixed(1) + " min"} />
+        <RankingTable title="Top Avg Minutes/Player" icon={Clock} items={rankings.topAvgMinutesPerPlayer || []} valueFormatter={(v) => Number(v).toFixed(1) + " min"} />
         <RankingTable title="Top Favoritos" icon={Star} items={rankings.topFavorites || []} />
         <RankingTable title="Top Recomendações" icon={ThumbsUp} items={rankings.topRecommendations || []} />
         <RankingTable title="Top Minutes Played" icon={Clock} items={rankings.topMinutesPlayed || []} />
@@ -223,8 +223,8 @@ export default function DiscoverTrendsReport() {
         description="Métricas derivadas e indicadores de eficiência"
       />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title="Plays / Unique Player" icon={Zap} items={rankings.topPlaysPerPlayer || []} valueFormatter={(v) => v.toFixed(2)} />
-        <RankingTable title="Favorites / 100 Players" icon={Star} items={rankings.topFavsPer100 || []} valueFormatter={(v) => v.toFixed(2)} />
+        <RankingTable title="Plays / Unique Player" icon={Zap} items={rankings.topPlaysPerPlayer || []} valueFormatter={(v) => Number(v).toFixed(2)} />
+        <RankingTable title="Favorites / 100 Players" icon={Star} items={rankings.topFavsPer100 || []} valueFormatter={(v) => Number(v).toFixed(2)} />
       </div>
       <AiNarrative text={getNarrative(6)} />
 
@@ -283,8 +283,8 @@ export default function DiscoverTrendsReport() {
         description="Métricas de conversão e eficiência das ilhas"
       />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title="Top Favorites/Play" icon={Star} items={rankings.topFavsPerPlay || []} valueFormatter={(v) => v.toFixed(4)} />
-        <RankingTable title="Top Recommends/Play" icon={ThumbsUp} items={rankings.topRecsPerPlay || []} valueFormatter={(v) => v.toFixed(4)} />
+        <RankingTable title="Top Favorites/Play" icon={Star} items={rankings.topFavsPerPlay || []} valueFormatter={(v) => Number(v).toFixed(4)} />
+        <RankingTable title="Top Recommends/Play" icon={ThumbsUp} items={rankings.topRecsPerPlay || []} valueFormatter={(v) => Number(v).toFixed(4)} />
       </div>
       <AiNarrative text={getNarrative(8)} />
     </div>
