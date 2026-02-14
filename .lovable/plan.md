@@ -1,195 +1,249 @@
-# Fase 2 -- Incremental Weekly Reports (Cache Global + Novas/Mortas/Revividas + WoW)
+
+
+# Surprise Radar -- Reestruturacao Completa da Plataforma
 
 ## Resumo
 
-Adicionar uma camada de cache global (`discover_islands_cache`) que armazena o ultimo estado conhecido de cada ilha, habilitando: deteccao automatica de ilhas novas/mortas/revividas, priorizacao inteligente da fila de metricas, comparativos Week-over-Week quantitativos, e reducao de chamadas desnecessarias a API da Epic.
+Transformar a aplicacao atual "FN Analytics" na plataforma "Surprise Radar" com tres areas distintas (publica, cliente, admin), novo sistema de identidade visual baseado na brand guide fornecida, e um mini-CMS para publicacao de reports semanais.
 
 ---
 
-## 1. Nova tabela: `discover_islands_cache`
+## Fase 1: Identidade Visual e Rebrand
+
+### 1.1 Paleta de cores (baseada na brand guide)
+
+Atualizar `src/index.css` com a nova paleta:
 
 ```text
-island_code       TEXT PRIMARY KEY
-title             TEXT
-creator_code      TEXT
-category          TEXT
-created_in        TEXT
-tags              JSONB DEFAULT '[]'
-first_seen_at     TIMESTAMPTZ DEFAULT now()
-last_seen_at      TIMESTAMPTZ DEFAULT now()
-last_status       TEXT           -- reported | suppressed
-suppressed_streak INT DEFAULT 0
-reported_streak   INT DEFAULT 0
-last_report_id    UUID NULL
-last_reported_at  TIMESTAMPTZ NULL
-last_suppressed_at TIMESTAMPTZ NULL
-last_probe_unique INT NULL
-last_probe_plays  INT NULL
-last_week_unique  INT NULL
-last_week_plays   INT NULL
-last_week_minutes INT NULL
-last_week_peak_ccu INT NULL
-last_week_favorites INT NULL
-last_week_recommends INT NULL
-last_week_d1_avg  FLOAT NULL
-last_week_d7_avg  FLOAT NULL
-last_week_minutes_per_player_avg FLOAT NULL
-updated_at        TIMESTAMPTZ DEFAULT now()
+Preto:    #000000 (base, sidebar, backgrounds)
+Branco:   #FFFFFF (texto, cards)
+Amarelo:  #FFFF29 (primary / CTA / destaques)
+Rosa:     #FF087A (accent / insights / alertas)
+Azul:     #0040FF (secondary actions / chips)
+Roxo:     #6408C8 (tabs / categorias)
+Vermelho: #FF392B (destructive / decliners)
 ```
 
-Indices: `(creator_code)`, `(last_status)`, `(suppressed_streak)`, `(last_reported_at)`.
+Dark mode: fundo preto (#000000), cards em cinza escuro (#111111), texto branco.
+Light mode: fundo branco, cards brancos, texto preto.
 
-RLS: service_role para INSERT/UPDATE/DELETE, authenticated para SELECT.
+### 1.2 Tipografia
+
+Substituir Inter + Space Grotesk por:
+- **Mafinest** (destaques/headings) -- como fonte custom, mas como fallback usaremos uma fonte similar disponivel no Google Fonts ou manteremos Space Grotesk para headings com estilo bold
+- **Figerona** (textos/body) -- fallback para Inter ou similar
+- Como fontes custom exigem arquivos .woff2, usaremos as mais proximas disponiveis: manter **Space Grotesk** para headings e **Inter** para body, ajustando pesos e estilos para refletir a energia da brand
+
+### 1.3 Nome e Branding
+
+- Trocar todas as referencias "FN Analytics" para "Surprise Radar"
+- Tagline: "Weekly Discovery Intelligence for Fortnite UGC"
+- Sidebar: logo + "Surprise Radar"
+- Footer: "Surprise Radar" + links
 
 ---
 
-## 2. Modificacoes no `discover-collector/index.ts`
+## Fase 2: Estrutura de Rotas e Permissoes
 
-### 2.1 Mode "metrics" -- Write-through no cache
-
-Apos cada upsert em `discover_report_islands`, tambem fazer upsert em `discover_islands_cache`:
-
-- Se ilha nova (nao existia): `first_seen_at = now()`
-- Se `status = reported`: incrementar `reported_streak`, zerar `suppressed_streak`, salvar todos os `last_week_*` e `last_probe_*`
-- Se `status = suppressed`: incrementar `suppressed_streak`, zerar `reported_streak`
-- Sempre atualizar `last_seen_at`, `last_report_id`, metadata
-
-### 2.2 Mode "metrics" -- Priorizacao da fila
-
-Ao buscar itens `pending` da `discover_report_queue`, fazer JOIN com `discover_islands_cache` e ordenar por prioridade:
+### 2.1 Nova arvore de rotas
 
 ```text
-1. last_status = 'reported' (mais provavel ter dados)
-2. ilha nova (nao existe no cache)
-3. suppressed_streak <= 2
-4. suppressed_streak > 2
+/                         Home publica
+/reports                  Lista de reports publicados (publica)
+/reports/:slug            Pagina publica de um report
+/auth                     Login/Signup
+
+/app                      Dashboard do cliente (auth required)
+/app/island-lookup        Lookup por codigo (ja existe)
+/app/csv-analytics        Upload ZIP/CSV (rota atual /app com projects)
+/app/history              Historico de relatorios do cliente
+
+/admin                    Overview admin (role required)
+/admin/reports            Lista de reports (draft/published)
+/admin/reports/:id/edit   Editor do report (mini CMS)
 ```
 
-Implementacao: adicionar coluna `priority` INT na query ou usar ORDER BY com CASE.
+### 2.2 Sistema de roles
 
-### 2.3 Mode "metrics" -- Skip para suppressed_streak >= 6
-
-Para ilhas com `suppressed_streak >= 6` e `last_reported_at` mais de 60 dias atras (ou NULL):
-
-- Marcar diretamente como `suppressed` sem chamar a API
-- Adicionar flag `assumed = true` no upsert
-- Revalidar 10% dessas por amostragem aleatoria (a cada report)
-
-### 2.4 Mode "metrics" -- Reported direto para week
-
-Para ilhas com `last_status = 'reported'` no cache:
-
-- Ir direto para fetch de 7 dias (ja faz isso hoje)
-- Nenhuma mudanca de logica, mas a priorizacao garante que essas sao processadas primeiro
-
-### 2.5 Mode "finalize" -- Novas secoes do ranking
-
-Adicionar ao `computedRankings`:
-
-**Ilhas novas da semana** (via cache):
-
-- `SELECT * FROM discover_islands_cache WHERE first_seen_at >= report.week_start`
-
-**Criadores novos** (via cache):
-
-- `SELECT DISTINCT creator_code FROM discover_islands_cache WHERE first_seen_at >= report.week_start` que nao existiam antes
-
-**Ilhas revividas** (suppressed -> reported):
-
-- `SELECT * FROM discover_islands_cache WHERE last_status = 'reported' AND last_suppressed_at IS NOT NULL AND last_suppressed_at > last_reported_at - interval '14 days'`
-- Ou mais simples: ilhas onde `reported_streak = 1` e `suppressed_streak` anterior era > 0
-
-**Ilhas que morreram** (reported -> suppressed):
-
-- Ilhas no report anterior com `status = 'reported'` que agora estao `suppressed`
-
-**Week-over-Week deltas**:
-
-- Para cada ilha reported, calcular delta vs `last_week_*` do cache (que contem valores do report anterior)
-- Campos: `delta_plays`, `delta_unique`, `delta_minutes`, `delta_peak_ccu`, `delta_favorites`, `delta_recommends`
-
-Novos rankings:
-
-- `topRisers` (maior crescimento absoluto em plays)
-- `topDecliners` (maior queda)
-- `breakouts` (de suppressed para top reported)
-- `revivedIslands` (lista de revividas)
-- `deadIslands` (lista de mortas)
-
-### 2.6 Mode "finalize" -- KPIs WoW
-
-Adicionar ao `platformKPIs`:
-
-- `wowTotalPlays`, `wowTotalPlayers`, `wowTotalMinutes` (delta vs report anterior)
-- `wowActiveIslands`, `wowNewMaps`, `wowNewCreators`
-
-Buscar do report anterior: `SELECT platform_kpis FROM discover_reports WHERE phase='done' ORDER BY created_at DESC LIMIT 1 OFFSET 1`
-
----
-
-## 3. Adicionar coluna `priority` na `discover_report_queue`
-
-Nova coluna para ordenacao inteligente:
+Adicionar coluna `role` na tabela `profiles`:
 
 ```text
-ALTER TABLE discover_report_queue ADD COLUMN priority INT DEFAULT 50;
+ALTER TABLE profiles ADD COLUMN role TEXT DEFAULT 'client';
 ```
 
-Valores:
+Valores: `admin`, `editor`, `client`
 
-- 10 = reported no cache (alta prioridade)
-- 20 = ilha nova (nao no cache)
-- 30 = suppressed_streak <= 2
-- 50 = default / suppressed_streak > 2
+### 2.3 Componentes de gate
 
-Populada durante a fase "catalog" ao inserir na queue, fazendo lookup no cache.
-
----
-
-## 4. Modificacoes no Frontend
-
-### 4.1 `DiscoverTrendsReport.tsx`
-
-Adicionar novas secoes visuais:
-
-- Secao "Ilhas Revividas" com RankingTable
-- Secao "Ilhas que Morreram" com RankingTable
-- Secao "Top Risers / Decliners" com barras de delta (verde/vermelho)
-- KPIs com setas WoW (ja existe a memoria sobre isso)
-
-### 4.2 `DiscoverTrendsList.tsx`
-
-Nenhuma mudanca estrutural. O pipeline continua igual, apenas mais rapido por causa do skip de ilhas mortas cronicas.
+- `ProtectedRoute` (ja existe): requer auth
+- `AdminRoute` (novo): requer auth + role = admin ou editor
+- `useAuth` atualizado para expor `role` do perfil
 
 ---
 
-## 5. Atualizar `discover-report-ai/index.ts`
+## Fase 3: Tabela CMS -- `weekly_reports`
 
-Adicionar ao prompt da IA:
+### 3.1 Schema
 
-- Dados de ilhas revividas/mortas
-- Top risers/decliners
-- Deltas WoW nos KPIs
-- Novos criadores com contexto
+```text
+weekly_reports
+  id                UUID PK DEFAULT gen_random_uuid()
+  discover_report_id UUID NULL (FK para discover_reports.id)
+  week_key          TEXT NOT NULL (ex: 2026-W06)
+  date_from         DATE NOT NULL
+  date_to           DATE NOT NULL
+  status            TEXT DEFAULT 'draft' (draft | published | archived)
+  public_slug       TEXT UNIQUE (ex: 2026-w06)
+  title_public      TEXT
+  subtitle_public   TEXT
+  editor_note       TEXT (markdown)
+  kpis_json         JSONB DEFAULT '{}'
+  rankings_json     JSONB DEFAULT '{}'
+  sections_json     JSONB DEFAULT '[]'
+  ai_sections_json  JSONB DEFAULT '{}'
+  editor_sections_json JSONB DEFAULT '{}'
+  published_at      TIMESTAMPTZ NULL
+  created_at        TIMESTAMPTZ DEFAULT now()
+  updated_at        TIMESTAMPTZ DEFAULT now()
+```
+
+### 3.2 RLS
+
+- SELECT publico para `status = 'published'` (sem auth)
+- SELECT completo para admin/editor (via role check)
+- INSERT/UPDATE/DELETE apenas service_role e admins
 
 ---
 
-## 6. Ordem de execucao
+## Fase 4: Area Publica
 
-1. Migracao SQL: criar `discover_islands_cache` + adicionar `priority` na queue
-2. Atualizar `discover-collector` mode "catalog": popular priority via lookup no cache
-3. Atualizar `discover-collector` mode "metrics": write-through no cache + skip suppressed cronicas + ordenacao por priority
-4. Atualizar `discover-collector` mode "finalize": novas secoes (revividas, mortas, risers, decliners, WoW)
-5. Atualizar `discover-report-ai`: prompt com novos dados
-6. Atualizar `DiscoverTrendsReport.tsx`: novas secoes visuais + WoW nos KPIs
+### 4.1 Home (`/`)
+
+Redesign com a identidade Surprise Radar:
+- Hero section com fundo escuro, acentos amarelo/rosa
+- CTA "Ver report desta semana" linkando para o ultimo published
+- Cards das 3 ferramentas
+- Footer com branding
+
+### 4.2 Lista de Reports (`/reports`)
+
+- Grid de cards com os reports publicados
+- Cada card: titulo, semana, data, KPIs resumidos
+- Sem auth necessario
+
+### 4.3 Pagina do Report (`/reports/:slug`)
+
+- Layout publico (sem sidebar)
+- Header com titulo, periodo, nota editorial
+- Todas as 13 secoes do report (reutilizar componentes existentes)
+- Logica: se `editor_sections_json[sectionN]` existe, usa; senao usa `ai_sections_json[sectionN]`
+- Botoes: compartilhar, copiar link
 
 ---
 
-## 7. Resultado esperado
+## Fase 5: Admin Panel
 
-- **Reports incrementais mais rapidos**: skip de ~96% das ilhas mortas cronicas sem chamar API
-- **Priorizacao inteligente**: ilhas ativas processadas primeiro = report parcial util mais cedo
-- **Insights novos sem custo extra**: novas/mortas/revividas/risers/decliners vem do cache
-- **WoW quantitativo**: deltas reais ao inves de apenas keywords
-- **Cache global reutilizavel**: base para futuras features (historico de ilha, perfil de criador, etc.)
-- Lembrar de criar novas areas para novas informações nos relatorios 
+### 5.1 Overview (`/admin`)
+
+- Status do job atual (fase, progresso, contadores)
+- Botao "Gerar Report Agora"
+- Lista dos ultimos reports com status
+
+### 5.2 Lista de Reports (`/admin/reports`)
+
+- Tabela com todos os reports (draft/published)
+- Acoes: editar, preview, publicar/despublicar
+
+### 5.3 Editor (`/admin/reports/:id/edit`)
+
+- Campos: titulo publico, subtitulo, nota editorial
+- Para cada secao (1-13): textarea com texto da IA + campo editavel
+- Botao "Publicar" que seta status=published e gera public_slug
+- Botao "Regenerar IA" por secao (chama discover-report-ai)
+
+---
+
+## Fase 6: Integracao Pipeline para CMS
+
+Atualizar o mode "finalize" do `discover-collector`:
+- Apos finalizar o `discover_reports`, criar/atualizar um `weekly_reports` como draft
+- Copiar `platform_kpis` para `kpis_json`
+- Copiar `computed_rankings` para `rankings_json`
+- Copiar `ai_narratives` para `ai_sections_json`
+- Gerar `public_slug` automaticamente (ex: `2026-w06`)
+- Gerar `title_public` automaticamente (ex: "Fortnite Discovery - Semana 6/2026")
+
+---
+
+## Fase 7: Reorganizacao de Rotas Existentes
+
+### Mover funcionalidades atuais
+
+- `/app` (atual Island Analytics / projects) migra para `/app/csv-analytics`
+- `/app/discover-trends` migra para `/admin` (apenas admin gera reports)
+- `/app/discover-trends/:reportId` (visualizacao) e reutilizado em `/reports/:slug` (publico) e `/admin/reports/:id/edit` (admin)
+
+---
+
+## Detalhes Tecnicos
+
+### Arquivos a criar
+
+```text
+src/components/AdminRoute.tsx
+src/components/PublicLayout.tsx
+src/components/AdminLayout.tsx
+src/pages/public/Home.tsx
+src/pages/public/ReportsList.tsx
+src/pages/public/ReportView.tsx
+src/pages/admin/AdminOverview.tsx
+src/pages/admin/AdminReportsList.tsx
+src/pages/admin/AdminReportEditor.tsx
+src/pages/app/ClientHistory.tsx
+```
+
+### Arquivos a modificar
+
+```text
+src/App.tsx                    -- novas rotas
+src/index.css                  -- nova paleta
+src/components/AppSidebar.tsx  -- rebrand + ajustar links
+src/components/AppLayout.tsx   -- manter para /app
+src/hooks/useAuth.tsx          -- adicionar role
+src/pages/Index.tsx            -- substituir por nova Home
+src/pages/DiscoverTrendsReport.tsx -- extrair componentes reutilizaveis
+supabase/functions/discover-collector/index.ts -- criar weekly_reports no finalize
+```
+
+### Migracao SQL
+
+1. `ALTER TABLE profiles ADD COLUMN role TEXT DEFAULT 'client'`
+2. `CREATE TABLE weekly_reports (...)`
+3. RLS policies para weekly_reports
+4. Setar seu usuario como admin: `UPDATE profiles SET role = 'admin' WHERE user_id = '...'`
+
+---
+
+## Ordem de Execucao
+
+1. **SQL**: Criar `weekly_reports` + adicionar `role` em `profiles`
+2. **CSS**: Nova paleta de cores (rebrand visual)
+3. **Auth**: Atualizar `useAuth` com role, criar `AdminRoute`
+4. **Rotas**: Reestruturar `App.tsx` com as 3 areas
+5. **Home publica**: Nova landing page Surprise Radar
+6. **Reports publicos**: `/reports` e `/reports/:slug`
+7. **Admin**: Overview + lista + editor
+8. **Pipeline**: Integracao do finalize com `weekly_reports`
+9. **Sidebar/Header**: Rebrand completo
+
+---
+
+## Resultado Esperado
+
+- Plataforma com identidade propria "Surprise Radar"
+- Reports semanais publicaveis como paginas publicas (SEO)
+- Admin pode editar/revisar antes de publicar
+- Clientes acessam ferramentas (lookup, CSV) sem ver admin
+- Paleta vibrante: preto/amarelo/rosa conforme brand guide
+- Pipeline existente inalterado, apenas com output adicional para o CMS
+
