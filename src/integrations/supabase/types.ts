@@ -416,6 +416,410 @@ export type Database = {
         }
         Relationships: []
       }
+      discovery_exposure_entries_raw: {
+        Row: {
+          feature_tags: string[] | null
+          global_ccu: number | null
+          id: number
+          is_visible: boolean | null
+          link_code: string
+          link_code_type: string
+          lock_status: string | null
+          lock_status_reason: string | null
+          page_index: number
+          panel_display_name: string | null
+          panel_name: string
+          panel_type: string | null
+          rank: number
+          surface_name: string
+          target_id: string
+          tick_id: string
+          ts: string
+        }
+        Insert: {
+          feature_tags?: string[] | null
+          global_ccu?: number | null
+          id?: number
+          is_visible?: boolean | null
+          link_code: string
+          link_code_type: string
+          lock_status?: string | null
+          lock_status_reason?: string | null
+          page_index?: number
+          panel_display_name?: string | null
+          panel_name: string
+          panel_type?: string | null
+          rank: number
+          surface_name: string
+          target_id: string
+          tick_id: string
+          ts?: string
+        }
+        Update: {
+          feature_tags?: string[] | null
+          global_ccu?: number | null
+          id?: number
+          is_visible?: boolean | null
+          link_code?: string
+          link_code_type?: string
+          lock_status?: string | null
+          lock_status_reason?: string | null
+          page_index?: number
+          panel_display_name?: string | null
+          panel_name?: string
+          panel_type?: string | null
+          rank?: number
+          surface_name?: string
+          target_id?: string
+          tick_id?: string
+          ts?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_exposure_entries_raw_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_exposure_targets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_exposure_entries_raw_tick_id_fkey"
+            columns: ["tick_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_exposure_ticks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_exposure_presence_segments: {
+        Row: {
+          best_rank: number | null
+          ccu_end: number | null
+          ccu_max: number | null
+          ccu_start: number | null
+          closed_reason: string | null
+          created_at: string
+          end_rank: number | null
+          end_ts: string | null
+          feature_tags: string[] | null
+          id: string
+          last_seen_ts: string
+          link_code: string
+          link_code_type: string
+          panel_display_name: string | null
+          panel_name: string
+          panel_type: string | null
+          rank_samples: number
+          rank_sum: number
+          start_ts: string
+          surface_name: string
+          target_id: string
+          updated_at: string
+        }
+        Insert: {
+          best_rank?: number | null
+          ccu_end?: number | null
+          ccu_max?: number | null
+          ccu_start?: number | null
+          closed_reason?: string | null
+          created_at?: string
+          end_rank?: number | null
+          end_ts?: string | null
+          feature_tags?: string[] | null
+          id?: string
+          last_seen_ts: string
+          link_code: string
+          link_code_type: string
+          panel_display_name?: string | null
+          panel_name: string
+          panel_type?: string | null
+          rank_samples?: number
+          rank_sum?: number
+          start_ts: string
+          surface_name: string
+          target_id: string
+          updated_at?: string
+        }
+        Update: {
+          best_rank?: number | null
+          ccu_end?: number | null
+          ccu_max?: number | null
+          ccu_start?: number | null
+          closed_reason?: string | null
+          created_at?: string
+          end_rank?: number | null
+          end_ts?: string | null
+          feature_tags?: string[] | null
+          id?: string
+          last_seen_ts?: string
+          link_code?: string
+          link_code_type?: string
+          panel_display_name?: string | null
+          panel_name?: string
+          panel_type?: string | null
+          rank_samples?: number
+          rank_sum?: number
+          start_ts?: string
+          surface_name?: string
+          target_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_exposure_presence_segments_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_exposure_targets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_exposure_rank_segments: {
+        Row: {
+          ccu_end: number | null
+          ccu_max: number | null
+          ccu_start: number | null
+          closed_reason: string | null
+          created_at: string
+          end_ts: string | null
+          feature_tags: string[] | null
+          id: string
+          last_seen_ts: string
+          link_code: string
+          link_code_type: string
+          panel_display_name: string | null
+          panel_name: string
+          panel_type: string | null
+          rank: number
+          start_ts: string
+          surface_name: string
+          target_id: string
+          updated_at: string
+        }
+        Insert: {
+          ccu_end?: number | null
+          ccu_max?: number | null
+          ccu_start?: number | null
+          closed_reason?: string | null
+          created_at?: string
+          end_ts?: string | null
+          feature_tags?: string[] | null
+          id?: string
+          last_seen_ts: string
+          link_code: string
+          link_code_type: string
+          panel_display_name?: string | null
+          panel_name: string
+          panel_type?: string | null
+          rank: number
+          start_ts: string
+          surface_name: string
+          target_id: string
+          updated_at?: string
+        }
+        Update: {
+          ccu_end?: number | null
+          ccu_max?: number | null
+          ccu_start?: number | null
+          closed_reason?: string | null
+          created_at?: string
+          end_ts?: string | null
+          feature_tags?: string[] | null
+          id?: string
+          last_seen_ts?: string
+          link_code?: string
+          link_code_type?: string
+          panel_display_name?: string | null
+          panel_name?: string
+          panel_type?: string | null
+          rank?: number
+          start_ts?: string
+          surface_name?: string
+          target_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_exposure_rank_segments_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_exposure_targets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_exposure_rollup_daily: {
+        Row: {
+          appearances: number
+          avg_rank: number | null
+          best_rank: number | null
+          ccu_max_seen: number | null
+          date: string
+          distinct_creators: number | null
+          link_code: string
+          link_code_type: string
+          minutes_exposed: number
+          panel_name: string
+          surface_name: string
+          target_id: string
+        }
+        Insert: {
+          appearances?: number
+          avg_rank?: number | null
+          best_rank?: number | null
+          ccu_max_seen?: number | null
+          date: string
+          distinct_creators?: number | null
+          link_code: string
+          link_code_type: string
+          minutes_exposed?: number
+          panel_name: string
+          surface_name: string
+          target_id: string
+        }
+        Update: {
+          appearances?: number
+          avg_rank?: number | null
+          best_rank?: number | null
+          ccu_max_seen?: number | null
+          date?: string
+          distinct_creators?: number | null
+          link_code?: string
+          link_code_type?: string
+          minutes_exposed?: number
+          panel_name?: string
+          surface_name?: string
+          target_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_exposure_rollup_daily_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_exposure_targets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_exposure_targets: {
+        Row: {
+          created_at: string
+          id: string
+          interval_minutes: number
+          last_error: string | null
+          last_failed_tick_at: string | null
+          last_ok_tick_at: string | null
+          last_status: string
+          locale: string
+          lock_id: string | null
+          locked_at: string | null
+          next_due_at: string
+          platform: string
+          region: string
+          surface_name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          interval_minutes?: number
+          last_error?: string | null
+          last_failed_tick_at?: string | null
+          last_ok_tick_at?: string | null
+          last_status?: string
+          locale?: string
+          lock_id?: string | null
+          locked_at?: string | null
+          next_due_at?: string
+          platform?: string
+          region: string
+          surface_name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          interval_minutes?: number
+          last_error?: string | null
+          last_failed_tick_at?: string | null
+          last_ok_tick_at?: string | null
+          last_status?: string
+          locale?: string
+          lock_id?: string | null
+          locked_at?: string | null
+          next_due_at?: string
+          platform?: string
+          region?: string
+          surface_name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      discovery_exposure_ticks: {
+        Row: {
+          branch: string | null
+          correlation_id: string | null
+          created_at: string
+          duration_ms: number | null
+          entries_count: number
+          error_code: string | null
+          error_message: string | null
+          id: string
+          panels_count: number
+          status: string
+          target_id: string
+          test_analytics_id: string | null
+          test_name: string | null
+          test_variant_name: string | null
+          ts_end: string | null
+          ts_start: string
+        }
+        Insert: {
+          branch?: string | null
+          correlation_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          entries_count?: number
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          panels_count?: number
+          status?: string
+          target_id: string
+          test_analytics_id?: string | null
+          test_name?: string | null
+          test_variant_name?: string | null
+          ts_end?: string | null
+          ts_start?: string
+        }
+        Update: {
+          branch?: string | null
+          correlation_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          entries_count?: number
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          panels_count?: number
+          status?: string
+          target_id?: string
+          test_analytics_id?: string | null
+          test_name?: string | null
+          test_variant_name?: string | null
+          ts_end?: string | null
+          ts_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_exposure_ticks_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_exposure_targets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -672,6 +1076,21 @@ export type Database = {
         Args: { p_report_id: string; p_results: Json }
         Returns: number
       }
+      apply_discovery_exposure_tick: {
+        Args: {
+          p_branch: string
+          p_correlation_id?: string
+          p_duration_ms: number
+          p_rows: Json
+          p_target_id: string
+          p_test_analytics_id: string
+          p_test_name: string
+          p_test_variant_name: string
+          p_tick_id: string
+          p_tick_ts: string
+        }
+        Returns: Json
+      }
       claim_discover_report_queue: {
         Args: {
           p_report_id: string
@@ -682,6 +1101,60 @@ export type Database = {
           id: string
           island_code: string
           priority: number
+        }[]
+      }
+      claim_discovery_exposure_target: {
+        Args: { p_stale_after_seconds?: number }
+        Returns: {
+          id: string
+          interval_minutes: number
+          locale: string
+          lock_id: string
+          platform: string
+          region: string
+          surface_name: string
+        }[]
+      }
+      compute_discovery_exposure_rollup_daily: {
+        Args: { p_date: string }
+        Returns: number
+      }
+      discovery_exposure_panel_daily_summaries: {
+        Args: { p_date_from: string; p_date_to: string }
+        Returns: {
+          collections: number
+          creators: number
+          date: string
+          maps: number
+          panel_name: string
+          surface_name: string
+          target_id: string
+        }[]
+      }
+      discovery_exposure_run_maintenance: {
+        Args: {
+          p_delete_batch?: number
+          p_raw_hours?: number
+          p_segment_days?: number
+        }
+        Returns: Json
+      }
+      discovery_exposure_top_by_panel: {
+        Args: {
+          p_date_from: string
+          p_date_to: string
+          p_limit_per_panel?: number
+        }
+        Returns: {
+          avg_rank: number
+          best_rank: number
+          ccu_max_seen: number
+          link_code: string
+          link_code_type: string
+          minutes_exposed: number
+          panel_name: string
+          surface_name: string
+          target_id: string
         }[]
       }
       has_role: {

@@ -9,7 +9,7 @@ import { SectionHeader } from "@/components/discover/SectionHeader";
 import { AiNarrative } from "@/components/discover/AiNarrative";
 import {
   ArrowLeft, Activity, Users, Play, Clock, TrendingUp, TrendingDown, Star, ThumbsUp,
-  BarChart3, Crown, Map, Layers, Zap, Target, PieChart, Tags, Sparkles,
+  BarChart3, Crown, Map as MapIcon, Layers, Zap, Target, PieChart, Tags, Sparkles,
   AlertTriangle, Flame, UserPlus, HeartPulse, Skull, Rocket, Share2, Copy, EyeOff,
 } from "lucide-react";
 import { ReportPageSkeleton } from "@/components/discover/ReportSkeleton";
@@ -175,7 +175,7 @@ export default function ReportView() {
       {/* Section 1: Core Activity */}
       <SectionHeader icon={Activity} number={1} title="Core Activity Metrics" description="Visão geral da atividade do ecossistema Discovery" />
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
-        <KpiCard icon={Map} label="Ilhas Ativas" value={fmt(kpis.activeIslands)} change={kpis.wowActiveIslands} />
+        <KpiCard icon={MapIcon} label="Ilhas Ativas" value={fmt(kpis.activeIslands)} change={kpis.wowActiveIslands} />
         <KpiCard icon={Users} label="Criadores" value={fmt(kpis.totalCreators)} />
         <KpiCard icon={Sparkles} label="Novos Mapas" value={fmt(kpis.newMapsThisWeek)} />
         <KpiCard icon={UserPlus} label="Novos Criadores" value={fmt(kpis.newCreatorsThisWeek)} />
@@ -251,7 +251,7 @@ export default function ReportView() {
       <div className="border-t border-border my-8" />
 
       {/* Section 7: Map Quality */}
-      <SectionHeader icon={Map} number={7} title="Map-Level Quality" description="Qualidade individual das ilhas" />
+      <SectionHeader icon={MapIcon} number={7} title="Map-Level Quality" description="Qualidade individual das ilhas" />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
         <RankingTable title="Top Avg Minutes/Player" icon={Clock} items={rankings.topAvgMinutesPerPlayer || []} valueFormatter={(v) => Number(v).toFixed(1) + " min"} />
         <RankingTable title="Top Favoritos" icon={Star} items={rankings.topFavorites || []} />
