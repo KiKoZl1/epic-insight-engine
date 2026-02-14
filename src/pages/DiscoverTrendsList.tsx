@@ -79,6 +79,96 @@ export default function DiscoverTrendsList() {
     setLogs(prev => [...prev.slice(-50), { time: timeNow(), message }]);
   }, []);
 
+  const resumeReport = useCallback(async (report: any) => {
+    const reportId = report.id;
+    const phase = report.phase as string;
+    setGenerating(true);
+    setGenState({
+      phase: phase as any,
+      reportId,
+      catalogDiscovered: report.catalog_discovered_count || 0,
+      estimatedTotal: report.estimated_total,
+      queueTotal: report.queue_total,
+      metricsDone: report.metrics_done_count || 0,
+      reported: report.reported_count || 0,
+      suppressed: report.suppressed_count || 0,
+      errors: report.error_count || 0,
+      progressPct: report.progress_pct || 0,
+    });
+    addLog(`🔄 Retomando relatório em andamento (fase: ${phase})...`);
+
+    try {
+      // Resume from the current phase
+      if (phase === "catalog") {
+        let catalogPhase = true;
+        while (catalogPhase && !abortRef.current) {
+          const res = await supabase.functions.invoke("discover-collector", { body: { mode: "catalog", reportId } });
+          if (res.error || !res.data?.success) throw new Error(res.data?.error || "Catalog failed");
+          const d = res.data;
+          setGenState(s => ({ ...s, phase: "catalog", catalogDiscovered: d.catalog_discovered_count, queueTotal: d.queue_total, progressPct: d.progress_pct }));
+          addLog(`📂 Indexadas: ${formatNumber(d.catalog_discovered_count)} ilhas`);
+          if (d.catalog_done || d.phase === "metrics") { catalogPhase = false; addLog(`✅ Catálogo completo: ${formatNumber(d.queue_total)} ilhas`); }
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+
+      if (abortRef.current) { addLog("⚠️ Cancelado"); setGenerating(false); return; }
+
+      // Metrics phase
+      if (phase === "catalog" || phase === "metrics") {
+        addLog("📊 Fase Métricas: Coletando dados de cada ilha...");
+        let metricsPhase = true;
+        while (metricsPhase && !abortRef.current) {
+          let res: any;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            res = await supabase.functions.invoke("discover-collector", { body: { mode: "metrics", reportId } });
+            if (!res.error) break;
+            if (attempt < 3) { addLog(`⚠️ Tentativa ${attempt} falhou, retentando...`); await new Promise(r => setTimeout(r, 3000)); }
+          }
+          if (res.error || !res.data?.success) throw new Error(res.data?.error || "Metrics failed");
+          const d = res.data;
+          setGenState(s => ({ ...s, phase: "metrics", metricsDone: d.metrics_done_count, queueTotal: d.queue_total, reported: d.reported_count, suppressed: d.suppressed_count, errors: d.error_count, progressPct: d.progress_pct }));
+          addLog(`📊 ${formatNumber(d.metrics_done_count)}/${formatNumber(d.queue_total)} | ✅${d.reported_count} 🚫${d.suppressed_count} ❌${d.error_count}`);
+          if (d.phase === "finalize") { metricsPhase = false; addLog(`✅ Métricas completas!`); }
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+
+      if (abortRef.current) { addLog("⚠️ Cancelado"); setGenerating(false); return; }
+
+      // Finalize
+      if (phase === "catalog" || phase === "metrics" || phase === "finalize") {
+        setGenState(s => ({ ...s, phase: "finalize", progressPct: 95 }));
+        addLog("🧮 Calculando rankings e KPIs...");
+        const finalizeRes = await supabase.functions.invoke("discover-collector", { body: { mode: "finalize", reportId } });
+        if (finalizeRes.error || !finalizeRes.data?.success) throw new Error(finalizeRes.data?.error || "Finalize failed");
+        addLog(`✅ Rankings calculados`);
+      }
+
+      // AI
+      setGenState(s => ({ ...s, phase: "ai", progressPct: 97 }));
+      addLog("🤖 Gerando narrativas com IA...");
+      await supabase.functions.invoke("discover-report-ai", { body: { reportId } });
+
+      setGenState(s => ({ ...s, phase: "done", progressPct: 100 }));
+      addLog("🎉 Relatório completo!");
+      fetchReports();
+      setTimeout(() => { setGenerating(false); setGenState(s => ({ ...s, phase: "idle", progressPct: 0 })); setLogs([]); }, 4000);
+    } catch (e: any) {
+      addLog(`❌ Erro: ${e.message}`);
+      if (reportId && genState.metricsDone > 0) {
+        addLog("🔄 Tentando finalizar com dados parciais...");
+        try {
+          await supabase.functions.invoke("discover-collector", { body: { reportId, mode: "finalize" } });
+          await supabase.functions.invoke("discover-report-ai", { body: { reportId } });
+          addLog("✅ Relatório parcial salvo!");
+          fetchReports();
+        } catch {}
+      }
+      setTimeout(() => { setGenerating(false); setGenState(s => ({ ...s, phase: "idle" })); }, 3000);
+    }
+  }, [addLog]);
+
   const fetchReports = async () => {
     const { data, error } = await supabase
       .from("discover_reports")
@@ -87,9 +177,19 @@ export default function DiscoverTrendsList() {
       .limit(8);
     if (!error && data) setReports(data as DiscoverReport[]);
     setLoading(false);
+    return data;
   };
 
-  useEffect(() => { fetchReports(); }, []);
+  // On mount, check for in-progress reports and resume
+  useEffect(() => {
+    fetchReports().then((data) => {
+      if (!data) return;
+      const inProgress = data.find((r: any) => r.status === "collecting" && r.phase && r.phase !== "done");
+      if (inProgress) {
+        resumeReport(inProgress);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });

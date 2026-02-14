@@ -11,8 +11,9 @@ import { AiNarrative } from "@/components/discover/AiNarrative";
 import {
   ArrowLeft, Activity, Users, Play, Clock, TrendingUp, Star, ThumbsUp,
   BarChart3, Crown, Map, Layers, Zap, Target, PieChart, Tags, Sparkles,
-  AlertTriangle, Flame, UserPlus,
+  AlertTriangle, Flame, UserPlus, Loader2,
 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { ReportPageSkeleton } from "@/components/discover/ReportSkeleton";
 import {
   PieChart as RPieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer,
@@ -49,10 +50,18 @@ interface Report {
   week_number: number;
   year: number;
   status: string;
+  phase: string | null;
   island_count: number | null;
   platform_kpis: any;
   computed_rankings: any;
   ai_narratives: any;
+  progress_pct: number | null;
+  catalog_discovered_count: number | null;
+  queue_total: number | null;
+  metrics_done_count: number | null;
+  reported_count: number | null;
+  suppressed_count: number | null;
+  error_count: number | null;
 }
 
 export default function DiscoverTrendsReport() {
@@ -60,7 +69,7 @@ export default function DiscoverTrendsReport() {
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchReport = () => {
     if (!reportId) return;
     supabase
       .from("discover_reports")
@@ -71,7 +80,16 @@ export default function DiscoverTrendsReport() {
         if (data) setReport(data as Report);
         setLoading(false);
       });
-  }, [reportId]);
+  };
+
+  useEffect(() => { fetchReport(); }, [reportId]);
+
+  // Poll while report is in progress
+  useEffect(() => {
+    if (!report || report.status === "completed" || report.phase === "done") return;
+    const interval = setInterval(fetchReport, 5000);
+    return () => clearInterval(interval);
+  }, [report?.status, report?.phase, reportId]);
 
   if (loading) return <ReportPageSkeleton />;
 
@@ -122,6 +140,47 @@ export default function DiscoverTrendsReport() {
           {report.status === "completed" ? "Completo" : report.status}
         </Badge>
       </div>
+
+      {/* In-progress banner */}
+      {report.status !== "completed" && report.phase !== "done" && (
+        <Card className="mb-6 border-primary/30">
+          <CardContent className="pt-4 pb-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <span className="text-sm font-medium">
+                {report.phase === "catalog" && "Indexando ilhas..."}
+                {report.phase === "metrics" && "Coletando métricas..."}
+                {report.phase === "finalize" && "Calculando rankings..."}
+                {report.phase === "ai" && "Gerando narrativas com IA..."}
+                {!report.phase && "Processando..."}
+              </span>
+              <span className="text-xs text-muted-foreground font-mono ml-auto">{report.progress_pct || 0}%</span>
+            </div>
+            <Progress value={report.progress_pct || 0} className="h-3" />
+            <div className="grid grid-cols-4 gap-3 text-center text-xs">
+              <div>
+                <p className="text-muted-foreground">Catalogadas</p>
+                <p className="font-bold text-sm">{fmt(report.catalog_discovered_count)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Processadas</p>
+                <p className="font-bold text-sm">{fmt(report.metrics_done_count)}/{fmt(report.queue_total)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Com Dados</p>
+                <p className="font-bold text-sm text-primary">{fmt(report.reported_count)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Suprimidas</p>
+                <p className="font-bold text-sm">{fmt(report.suppressed_count)}</p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground text-center">
+              O relatório está sendo gerado. Esta página atualiza automaticamente a cada 5 segundos.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Section 1: Core Activity */}
       <SectionHeader icon={Activity} number={1} title="Core Activity Metrics" description="Visão geral da atividade do ecossistema Discovery" />
