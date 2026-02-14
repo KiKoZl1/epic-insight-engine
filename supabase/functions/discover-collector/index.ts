@@ -10,7 +10,7 @@ const EPIC_API = "https://api.fortnite.com/ecosystem/v1";
 const PARALLEL_BATCH = 5;
 const PAGE_SIZE = 500;
 const ISLANDS_PER_PASS = 400;
-const TIME_LIMIT_MS = 50000;
+const TIME_LIMIT_MS = 45000;
 
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -401,16 +401,19 @@ serve(async (req) => {
     const weekNumber = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
     const year = d.getUTCFullYear();
 
-    // Load existing island codes from DB cache for "new islands" detection
-    const { data: cachedIslands } = await supabase
-      .from("discover_islands")
-      .select("island_code")
-      .limit(50000);
-    const existingIslandCodes = new Set((cachedIslands || []).map((i: any) => i.island_code));
+    // Defer loading existing island codes - only needed when finalizing
+    let existingIslandCodes: Set<string> = new Set();
 
     // ============ FINALIZE MODE ============
     if (mode === "finalize" && reportId) {
       console.log(`Finalizing report ${reportId}...`);
+
+      // Load existing island codes only at finalization
+      const { data: cachedIslands } = await supabase
+        .from("discover_islands")
+        .select("island_code")
+        .limit(50000);
+      existingIslandCodes = new Set((cachedIslands || []).map((i: any) => i.island_code));
 
       const { data: existingReport } = await supabase
         .from("discover_reports")
@@ -542,6 +545,13 @@ serve(async (req) => {
     }).eq("id", currentReportId);
 
     if (done) {
+      // Load existing island codes for new-island detection at finalization
+      const { data: cachedIslands } = await supabase
+        .from("discover_islands")
+        .select("island_code")
+        .limit(50000);
+      existingIslandCodes = new Set((cachedIslands || []).map((i: any) => i.island_code));
+
       const { platformKPIs, computedRankings } = computeReportData(allIslands, existingIslandCodes);
       await supabase.from("discover_reports").update({
         status: "completed",
