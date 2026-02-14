@@ -36,11 +36,20 @@ type TickRow = {
   error_message: string | null;
 };
 
-function fmtAgo(iso: string | null | undefined): string {
+function fmtAgo(iso: string | null | undefined, allowFuture = false): string {
   if (!iso) return "-";
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!isFinite(ms) || ms < 0) return "-";
-  const m = Math.floor(ms / 60000);
+  const diff = Date.now() - new Date(iso).getTime();
+  if (!isFinite(diff)) return "-";
+  if (diff < 0) {
+    if (!allowFuture) return "-";
+    const ms = Math.abs(diff);
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return "em <1m";
+    if (m < 60) return `em ${m}m`;
+    const h = Math.floor(m / 60);
+    return `em ${h}h`;
+  }
+  const m = Math.floor(diff / 60000);
   if (m < 1) return "agora";
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
@@ -408,7 +417,7 @@ export default function AdminExposureHealth() {
                       {t.last_status === "processing" && <Badge variant="outline">processing</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      next_due {fmtAgo(t.next_due_at)} · last_ok {fmtAgo(t.last_ok_tick_at)} · last_failed {fmtAgo(t.last_failed_tick_at)}
+                      next_due {fmtAgo(t.next_due_at, true)} · last_ok {fmtAgo(t.last_ok_tick_at)} · last_failed {fmtAgo(t.last_failed_tick_at)}
                       {t.locked_at ? ` · locked ${fmtAgo(t.locked_at)}` : ""}
                     </p>
                     {t.last_error && (
