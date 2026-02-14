@@ -140,14 +140,31 @@ export default function DiscoverTrendsList() {
         passCount++;
         addLog(`Lote ${passCount}: enviando requisição para coletor...`);
 
-        const res = await supabase.functions.invoke("discover-collector", {
-          body: { reportId, cursor, targetIslands: TARGET_ISLANDS, mode: "collect" },
-        });
+        let res: any = null;
+        let lastError: any = null;
+        // Retry up to 3 times per batch
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            res = await supabase.functions.invoke("discover-collector", {
+              body: { reportId, cursor, targetIslands: TARGET_ISLANDS, mode: "collect" },
+            });
+            if (!res.error) break;
+            lastError = res.error;
+          } catch (e) {
+            lastError = e;
+          }
+          if (attempt < 3) {
+            addLog(`⚠️ Tentativa ${attempt} falhou, retentando em 3s...`);
+            await new Promise((r) => setTimeout(r, 3000));
+          }
+        }
 
-        if (res.error) throw res.error;
+        if (res?.error || !res?.data?.success) {
+          const errMsg = res?.data?.error || lastError?.message || "Falha na coleta";
+          throw new Error(errMsg);
+        }
+
         const data = res.data;
-        if (!data.success) throw new Error(data.error || "Falha na coleta");
-
         reportId = data.reportId;
         reportIdRef.current = reportId;
         cursor = data.cursor;
