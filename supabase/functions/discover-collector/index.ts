@@ -660,7 +660,7 @@ serve(async (req) => {
           .select("id, phase, progress_pct, metrics_done_count, reported_count, suppressed_count, error_count, queue_total, throughput_per_min, workers_active")
           .eq("id", activeReportId)
           .single(),
-        getQueueStatusCounts(supabase, activeReportId),
+        getQueueStatusCounts(supabase, activeReportId!),
       ]);
 
       return new Response(JSON.stringify({
@@ -1627,7 +1627,7 @@ serve(async (req) => {
           creator: i.creator_code,
           category: i.category,
           value: i.delta_plays || 0,
-          label: `+${fmt(i.delta_plays || 0)} plays`,
+          label: `+${(i.delta_plays || 0).toLocaleString()} plays`,
         }));
 
       const topDecliners = [...withDeltas]
@@ -1641,7 +1641,7 @@ serve(async (req) => {
           creator: i.creator_code,
           category: i.category,
           value: Math.abs(i.delta_plays || 0),
-          label: `${fmt(i.delta_plays || 0)} plays`,
+          label: `${(i.delta_plays || 0).toLocaleString()} plays`,
         }));
 
       // Breakouts: were suppressed, now in top reported

@@ -666,10 +666,7 @@ export type Database = {
     }
     Functions: {
       apply_discover_queue_results: {
-        Args: {
-          p_report_id: string
-          p_results: Json
-        }
+        Args: { p_report_id: string; p_results: Json }
         Returns: number
       }
       claim_discover_report_queue: {
@@ -691,20 +688,17 @@ export type Database = {
         }
         Returns: boolean
       }
+      repair_discover_report_state: {
+        Args: { p_report_id: string; p_stale_after_seconds?: number }
+        Returns: Json
+      }
       requeue_stale_discover_queue: {
         Args: {
-          p_report_id: string
           p_max_rows?: number
+          p_report_id: string
           p_stale_after_seconds?: number
         }
         Returns: number
-      }
-      repair_discover_report_state: {
-        Args: {
-          p_report_id: string
-          p_stale_after_seconds?: number
-        }
-        Returns: Json
       }
     }
     Enums: {
