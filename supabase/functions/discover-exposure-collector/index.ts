@@ -16,7 +16,14 @@ const FN_DISCOVERY_V2_SURFACE_BASE =
 
 const ISLAND_CODE_RE = /^\d{4}-\d{4}-\d{4}$/;
 
-type Mode = "orchestrate" | "tick" | "maintenance" | "config_status" | "set_paused" | "bootstrap_device_auth";
+type Mode =
+  | "orchestrate"
+  | "tick"
+  | "maintenance"
+  | "intel_refresh"
+  | "config_status"
+  | "set_paused"
+  | "bootstrap_device_auth";
 
 type TargetClaim = {
   id: string;
@@ -623,6 +630,16 @@ serve(async (req) => {
       const { data, error } = await supabase.rpc("discovery_exposure_run_maintenance", args);
       if (error) return json({ success: false, error: error.message }, 500);
       return json({ success: true, maintenance: data });
+    }
+
+    if (mode === "intel_refresh") {
+      const asOf = body.asOf ? new Date(String(body.asOf)).toISOString() : undefined;
+      const args: Record<string, unknown> = {};
+      if (asOf) args.p_as_of = asOf;
+
+      const { data, error } = await supabase.rpc("compute_discovery_public_intel", args);
+      if (error) return json({ success: false, error: error.message }, 500);
+      return json({ success: true, mode, intel: data });
     }
 
     if (mode === "tick") {

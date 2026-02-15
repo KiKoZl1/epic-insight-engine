@@ -14,6 +14,7 @@ import AdminLayout from "./components/AdminLayout";
 import Home from "./pages/public/Home";
 import ReportsList from "./pages/public/ReportsList";
 import ReportView from "./pages/public/ReportView";
+import DiscoverLive from "./pages/public/DiscoverLive";
 import Auth from "./pages/Auth";
 
 // Client pages
@@ -27,6 +28,7 @@ import AdminOverview from "./pages/admin/AdminOverview";
 import AdminReportsList from "./pages/admin/AdminReportsList";
 import AdminReportEditor from "./pages/admin/AdminReportEditor";
 import AdminExposureHealth from "./pages/admin/AdminExposureHealth";
+import AdminIntel from "./pages/admin/AdminIntel";
 
 import NotFound from "./pages/NotFound";
 
@@ -43,6 +45,7 @@ const App = () => (
             {/* Public */}
             <Route element={<PublicLayout />}>
               <Route path="/" element={<Home />} />
+              <Route path="/discover" element={<DiscoverLive />} />
               <Route path="/reports" element={<ReportsList />} />
               <Route path="/reports/:slug" element={<ReportView />} />
             </Route>
@@ -62,6 +65,7 @@ const App = () => (
               <Route path="reports" element={<AdminReportsList />} />
               <Route path="reports/:id/edit" element={<AdminReportEditor />} />
               <Route path="exposure" element={<AdminExposureHealth />} />
+              <Route path="intel" element={<AdminIntel />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />

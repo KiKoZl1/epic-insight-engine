@@ -1,4 +1,4 @@
-import { Radar, LayoutDashboard, FileText, LogOut, ArrowLeft, Eye } from "lucide-react";
+import { Radar, LayoutDashboard, FileText, LogOut, ArrowLeft, Eye, Brain } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -11,6 +11,7 @@ const items = [
   { title: "Overview", url: "/admin", icon: LayoutDashboard, end: true },
   { title: "Reports", url: "/admin/reports", icon: FileText },
   { title: "Exposure", url: "/admin/exposure", icon: Eye },
+  { title: "Intel", url: "/admin/intel", icon: Brain },
 ];
 
 export function AdminSidebar() {

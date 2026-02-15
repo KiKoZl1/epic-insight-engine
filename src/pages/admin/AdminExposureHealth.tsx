@@ -417,7 +417,7 @@ export default function AdminExposureHealth() {
                       {t.last_status === "processing" && <Badge variant="outline">processing</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      next_due {fmtAgo(t.next_due_at, true)} · last_ok {fmtAgo(t.last_ok_tick_at)} · last_failed {fmtAgo(t.last_failed_tick_at)}
+                      interval {t.interval_minutes}m · next_due {fmtAgo(t.next_due_at, true)} · last_ok {fmtAgo(t.last_ok_tick_at)} · last_failed {fmtAgo(t.last_failed_tick_at)}
                       {t.locked_at ? ` · locked ${fmtAgo(t.locked_at)}` : ""}
                     </p>
                     {t.last_error && (
