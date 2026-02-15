@@ -54,10 +54,27 @@ function HealthDot({ status, label }: { status: HealthStatus; label: string }) {
   );
 }
 
+// ─── MiniSparkline ────────────────────────────────────────────
+
+function MiniSparkline({ data, color = "currentColor" }: { data: number[]; color?: string }) {
+  if (data.length < 2) return null;
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+  const w = 56, h = 18;
+  const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * (h - 2) - 1}`).join(" ");
+  return (
+    <svg width={w} height={h} className="shrink-0 opacity-70">
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // ─── StatCard ─────────────────────────────────────────────────
 
-function StatCard({ icon: Icon, label, value, sub, color }: {
+function StatCard({ icon: Icon, label, value, sub, color, sparkData }: {
   icon: React.ElementType; label: string; value: string; sub?: string; color?: "destructive" | "success" | "warning" | "default";
+  sparkData?: number[];
 }) {
   const colorMap = {
     destructive: "text-destructive",
@@ -65,13 +82,19 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
     warning: "text-yellow-500",
     default: "text-foreground",
   };
+  const sparkColorMap: Record<string, string> = {
+    destructive: "#ef4444", success: "#22c55e", warning: "#eab308", default: "#6366f1",
+  };
   return (
     <div className="rounded-lg border bg-card p-3 space-y-1">
       <div className="flex items-center gap-1.5 text-muted-foreground">
         <Icon className="h-3.5 w-3.5" />
         <span className="text-xs truncate">{label}</span>
       </div>
-      <p className={`font-display text-lg font-bold leading-none ${colorMap[color || "default"]}`}>{value}</p>
+      <div className="flex items-center justify-between gap-1">
+        <p className={`font-display text-lg font-bold leading-none ${colorMap[color || "default"]}`}>{value}</p>
+        {sparkData && sparkData.length >= 2 && <MiniSparkline data={sparkData} color={sparkColorMap[color || "default"]} />}
+      </div>
       {sub && <p className="text-[10px] text-muted-foreground leading-tight">{sub}</p>}
     </div>
   );
@@ -147,6 +170,13 @@ export default function AdminOverview() {
   const lastPhaseRef = useRef("idle");
   const { toast } = useToast();
 
+  // History tracking for sparklines
+  const censusHistory = useRef<Record<string, number[]>>({});
+  const metaHistory = useRef<Record<string, number[]>>({});
+
+  // Enqueue gap
+  const [enqueueLoading, setEnqueueLoading] = useState(false);
+
   const addLog = useCallback((msg: string) => {
     setLogs(p => [...p.slice(-80), { time: timeNow(), message: msg }]);
   }, []);
@@ -181,6 +211,18 @@ export default function AdminOverview() {
       weeklyReports: weeklyRes?.data?.length || 0,
       weeklyPublished: weeklyRes?.data?.filter((r: any) => r.published_at)?.length || 0,
     });
+
+    // Push to sparkline history
+    const h = censusHistory.current;
+    const pushH = (key: string, val: number) => { h[key] = [...(h[key] || []).slice(-30), val]; };
+    pushH("total", total);
+    pushH("reported", rep);
+    pushH("suppressed", sup);
+    pushH("otherStatus", total - rep - sup);
+    pushH("withTitle", withTitle || 0);
+    pushH("uniqueCreators", uniqueCreators || 0);
+    pushH("engineReports", reportsRes?.count || 0);
+    pushH("weeklyReports", weeklyRes?.data?.length || 0);
   }, []);
 
   const fetchMeta = useCallback(async () => {
@@ -219,7 +261,31 @@ export default function AdminOverview() {
       islands: islandR?.count || 0,
       collections: collR?.count || 0,
     });
+
+    // Push to sparkline history
+    const mh = metaHistory.current;
+    const pushMH = (key: string, val: number) => { mh[key] = [...(mh[key] || []).slice(-30), val]; };
+    pushMH("total", totalR?.count || 0);
+    pushMH("withTitle", wt);
+    pushMH("withError", errorR?.count || 0);
+    pushMH("pendingNoData", pendingR?.count || 0);
   }, []);
+
+  const handleEnqueue = useCallback(async () => {
+    setEnqueueLoading(true);
+    try {
+      const res = await supabase.functions.invoke("discover-enqueue-gap", { body: {} });
+      if (res.error) throw new Error(res.error.message);
+      const { enqueued, submitted } = res.data || {};
+      toast({ title: "Enfileiramento concluído", description: `${enqueued} novas ilhas enfileiradas de ${submitted} submetidas.` });
+      addLog(`Enfileirar Top 5K: ${enqueued} novas de ${submitted}`);
+      await fetchMeta();
+    } catch (e: any) {
+      toast({ title: "Erro ao enfileirar", description: e.message, variant: "destructive" });
+    } finally {
+      setEnqueueLoading(false);
+    }
+  }, [toast, addLog, fetchMeta]);
 
   const fetchExposure = useCallback(async () => {
     const twentyFourAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -410,14 +476,14 @@ export default function AdminOverview() {
           <Database className="h-4 w-4" /> Database Census
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard icon={Layers} label="Total Ilhas" value={fmt(census?.totalIslands)} />
-          <StatCard icon={CheckCircle2} label="Reported" value={fmt(census?.reported)} sub={census ? pct(census.reported, census.totalIslands) : undefined} color="success" />
-          <StatCard icon={EyeOff} label="Suprimidas" value={fmt(census?.suppressed)} sub={census ? pct(census.suppressed, census.totalIslands) : undefined} />
-          <StatCard icon={AlertCircle} label="Outro Status" value={fmt(census?.otherStatus)} />
-          <StatCard icon={FileText} label="Com Titulo (Cache)" value={fmt(census?.withTitle)} sub={census ? pct(census.withTitle, census.totalIslands) : undefined} color={census && census.withTitle < census.totalIslands * 0.01 ? "destructive" : "default"} />
-          <StatCard icon={Users} label="Criadores Unicos" value={fmt(census?.uniqueCreators)} />
-          <StatCard icon={BarChart3} label="Reports Engine" value={fmt(census?.engineReports)} />
-          <StatCard icon={FileText} label="Weekly Reports" value={census ? `${census.weeklyReports} (${census.weeklyPublished} pub.)` : "-"} />
+          <StatCard icon={Layers} label="Total Ilhas" value={fmt(census?.totalIslands)} sparkData={censusHistory.current.total} />
+          <StatCard icon={CheckCircle2} label="Reported" value={fmt(census?.reported)} sub={census ? pct(census.reported, census.totalIslands) : undefined} color="success" sparkData={censusHistory.current.reported} />
+          <StatCard icon={EyeOff} label="Suprimidas" value={fmt(census?.suppressed)} sub={census ? pct(census.suppressed, census.totalIslands) : undefined} sparkData={censusHistory.current.suppressed} />
+          <StatCard icon={AlertCircle} label="Outro Status" value={fmt(census?.otherStatus)} sparkData={censusHistory.current.otherStatus} />
+          <StatCard icon={FileText} label="Com Titulo (Cache)" value={fmt(census?.withTitle)} sub={census ? pct(census.withTitle, census.totalIslands) : undefined} color={census && census.withTitle < census.totalIslands * 0.01 ? "destructive" : "default"} sparkData={censusHistory.current.withTitle} />
+          <StatCard icon={Users} label="Criadores Unicos" value={fmt(census?.uniqueCreators)} sparkData={censusHistory.current.uniqueCreators} />
+          <StatCard icon={BarChart3} label="Reports Engine" value={fmt(census?.engineReports)} sparkData={censusHistory.current.engineReports} />
+          <StatCard icon={FileText} label="Weekly Reports" value={census ? `${census.weeklyReports} (${census.weeklyPublished} pub.)` : "-"} sparkData={censusHistory.current.weeklyReports} />
         </div>
       </div>
 
@@ -461,10 +527,16 @@ export default function AdminOverview() {
                 <div><span className="text-muted-foreground">Islands:</span> <span className="font-bold">{fmt(meta?.islands)}</span></div>
                 <div><span className="text-muted-foreground">Collections:</span> <span className="font-bold">{fmt(meta?.collections)}</span></div>
               </div>
-              <div className="pt-1 border-t">
-                <span className="text-muted-foreground">GAP:</span>{" "}
-                <span className="font-bold text-destructive">{fmt(metaGap)}</span>{" "}
-                <span className="text-muted-foreground">ilhas do cache sem metadata enfileirado</span>
+              <div className="pt-1 border-t flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-muted-foreground">GAP:</span>{" "}
+                  <span className="font-bold text-destructive">{fmt(metaGap)}</span>{" "}
+                  <span className="text-muted-foreground">ilhas do cache sem metadata enfileirado</span>
+                </div>
+                <Button size="sm" variant="outline" onClick={handleEnqueue} disabled={enqueueLoading || metaGap <= 0} className="text-xs shrink-0">
+                  {enqueueLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Zap className="h-3 w-3 mr-1" />}
+                  Enfileirar Top 5K
+                </Button>
               </div>
             </div>
           </CardContent>
