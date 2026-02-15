@@ -491,6 +491,107 @@ export type Database = {
           },
         ]
       }
+      discovery_exposure_link_state: {
+        Row: {
+          first_seen_at: string
+          last_seen_at: string
+          link_code: string
+          link_code_type: string
+          target_id: string
+        }
+        Insert: {
+          first_seen_at: string
+          last_seen_at: string
+          link_code: string
+          link_code_type: string
+          target_id: string
+        }
+        Update: {
+          first_seen_at?: string
+          last_seen_at?: string
+          link_code?: string
+          link_code_type?: string
+          target_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_exposure_link_state_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_exposure_targets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_exposure_presence_events: {
+        Row: {
+          closed_reason: string | null
+          event_type: string
+          feature_tags: string[] | null
+          global_ccu: number | null
+          id: number
+          link_code: string
+          link_code_type: string
+          panel_display_name: string | null
+          panel_name: string
+          panel_type: string | null
+          rank: number | null
+          surface_name: string
+          target_id: string
+          tick_id: string
+          ts: string
+        }
+        Insert: {
+          closed_reason?: string | null
+          event_type: string
+          feature_tags?: string[] | null
+          global_ccu?: number | null
+          id?: number
+          link_code: string
+          link_code_type: string
+          panel_display_name?: string | null
+          panel_name: string
+          panel_type?: string | null
+          rank?: number | null
+          surface_name: string
+          target_id: string
+          tick_id: string
+          ts: string
+        }
+        Update: {
+          closed_reason?: string | null
+          event_type?: string
+          feature_tags?: string[] | null
+          global_ccu?: number | null
+          id?: number
+          link_code?: string
+          link_code_type?: string
+          panel_display_name?: string | null
+          panel_name?: string
+          panel_type?: string | null
+          rank?: number | null
+          surface_name?: string
+          target_id?: string
+          tick_id?: string
+          ts?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_exposure_presence_events_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_exposure_targets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_exposure_presence_events_tick_id_fkey"
+            columns: ["tick_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_exposure_ticks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       discovery_exposure_presence_segments: {
         Row: {
           best_rank: number | null
