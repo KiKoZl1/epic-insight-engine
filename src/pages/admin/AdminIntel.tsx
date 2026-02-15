@@ -17,9 +17,9 @@ export default function AdminIntel() {
   async function loadCounts() {
     setLoading(true);
     const [p, e, pol] = await Promise.all([
-      supabase.from("discovery_public_premium_now").select("as_of", { count: "exact", head: false }).limit(1),
-      supabase.from("discovery_public_emerging_now").select("as_of", { count: "exact", head: false }).limit(1),
-      supabase.from("discovery_public_pollution_creators_now").select("as_of", { count: "exact", head: false }).limit(1),
+      (supabase as any).from("discovery_public_premium_now").select("as_of", { count: "exact", head: false }).limit(1),
+      (supabase as any).from("discovery_public_emerging_now").select("as_of", { count: "exact", head: false }).limit(1),
+      (supabase as any).from("discovery_public_pollution_creators_now").select("as_of", { count: "exact", head: false }).limit(1),
     ]);
     setPremiumCount(p.count || 0);
     setEmergingCount(e.count || 0);

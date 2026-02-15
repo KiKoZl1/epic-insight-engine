@@ -73,9 +73,9 @@ export default function DiscoverLive() {
   async function load() {
     setLoading(true);
     const [p, e, pol] = await Promise.all([
-      supabase.from("discovery_public_premium_now").select("*").limit(5000),
-      supabase.from("discovery_public_emerging_now").select("*").limit(5000),
-      supabase.from("discovery_public_pollution_creators_now").select("*").limit(2000),
+      (supabase as any).from("discovery_public_premium_now").select("*").limit(5000),
+      (supabase as any).from("discovery_public_emerging_now").select("*").limit(5000),
+      (supabase as any).from("discovery_public_pollution_creators_now").select("*").limit(2000),
     ]);
     if (p.data) setPremium(p.data as any);
     if (e.data) setEmerging(e.data as any);
