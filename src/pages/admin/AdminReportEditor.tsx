@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Save, Globe, EyeOff, Loader2, Upload, Image, ChevronDown, Bold, Italic, Link2, Eye } from "lucide-react";
+import { ArrowLeft, Save, Globe, EyeOff, Loader2, Upload, Image, ChevronDown, Bold, Italic, Link2, Eye, RefreshCw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { ReportPreview } from "@/components/admin/ReportPreview";
 
@@ -27,6 +27,7 @@ export default function AdminReportEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -81,6 +82,22 @@ export default function AdminReportEditor() {
       setReport({ ...report, status: newStatus });
       toast({ title: newStatus === "published" ? "Publicado!" : "Despublicado" });
     }
+  };
+
+  const handleRebuild = async () => {
+    if (!id) return;
+    setRebuilding(true);
+    const { error, data } = await supabase.functions.invoke("discover-report-rebuild", {
+      body: { weeklyReportId: id, runAi: true, reinjectExposure: true, refreshMetadata: false },
+    });
+    setRebuilding(false);
+    if (error) {
+      toast({ title: "Erro ao regenerar", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Regenerado!", description: `baseline=${data?.baselineAvailable ? "yes" : "no"} · metadataTitlePct=${Math.round((data?.metadataCoverage?.titlePct || 0) * 100)}%` });
+    const { data: refreshed } = await supabase.from("weekly_reports").select("*").eq("id", id).single();
+    if (refreshed) setReport(refreshed);
   };
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -138,6 +155,10 @@ export default function AdminReportEditor() {
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleSave} disabled={saving}>
             <Save className="h-4 w-4 mr-1" /> {saving ? "Salvando..." : "Salvar"}
+          </Button>
+          <Button variant="outline" onClick={handleRebuild} disabled={rebuilding}>
+            <RefreshCw className={"h-4 w-4 mr-1 " + (rebuilding ? "animate-spin" : "")} />
+            {rebuilding ? "Regenerando..." : "Regenerar (DB-only)"}
           </Button>
           <Button variant={report.status === "published" ? "destructive" : "default"} onClick={togglePublish}>
             {report.status === "published" ? <><EyeOff className="h-4 w-4 mr-1" /> Despublicar</> : <><Globe className="h-4 w-4 mr-1" /> Publicar</>}

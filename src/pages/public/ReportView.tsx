@@ -223,11 +223,24 @@ export default function ReportView() {
       <div className="border-t border-border my-8" />
 
       {/* Section 4: New Islands */}
-      <SectionHeader icon={Sparkles} number={4} title="Novas Ilhas da Semana" description="Ilhas que apareceram pela primeira vez" />
+      <SectionHeader icon={Sparkles} number={4} title="Novas Ilhas da Semana" description="Lançadas esta semana (por data de publish da Epic)" />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title="Top Novas por Plays" icon={Play} items={rankings.topNewIslandsByPlays || []} />
-        <RankingTable title="Top Novas por Players" icon={Users} items={rankings.topNewIslandsByPlayers || []} />
+        <RankingTable
+          title="Top Novas por Plays"
+          icon={Play}
+          items={rankings.topNewIslandsByPlaysPublished || rankings.topNewIslandsByPlays || []}
+        />
+        <RankingTable
+          title="Top Novas por Players"
+          icon={Users}
+          items={rankings.topNewIslandsByPlayersPublished || rankings.topNewIslandsByPlayers || []}
+        />
       </div>
+      {rankings.mostUpdatedIslandsThisWeek?.length > 0 && (
+        <div className="grid md:grid-cols-2 gap-4 mb-4">
+          <RankingTable title="Mais Atualizadas (semana)" icon={Zap} items={rankings.mostUpdatedIslandsThisWeek || []} />
+        </div>
+      )}
       <AiNarrative text={getNarrative(4)} />
 
       <div className="border-t border-border my-8" />
@@ -353,7 +366,7 @@ export default function ReportView() {
                 title="Discovery Exposure"
                 description="Timeline por panel (rank #1..#10) a partir do Discovery 24/7"
               />
-            <DiscoveryExposureSection exposure={exposure} />
+            <DiscoveryExposureSection exposure={exposure} weeklyReportId={report.id} />
             <AiNarrative text={getNarrative(14)} />
           </TooltipProvider>
         </>
@@ -362,10 +375,10 @@ export default function ReportView() {
   );
 }
 
-function DiscoveryExposureSection({ exposure }: { exposure: any }) {
+function DiscoveryExposureSection({ exposure, weeklyReportId }: { exposure: any; weeklyReportId: string }) {
   const profiles = Array.isArray(exposure?.profiles) ? exposure.profiles : [];
   const panels = Array.isArray(exposure?.panels) ? exposure.panels : [];
-  const timeline = Array.isArray(exposure?.panelRankTimeline) ? exposure.panelRankTimeline : [];
+  const embeddedTimeline = Array.isArray(exposure?.panelRankTimeline) ? exposure.panelRankTimeline : [];
   const topByPanel = Array.isArray(exposure?.topByPanel) ? exposure.topByPanel : [];
 
   const rangeStart = new Date(exposure?.meta?.rangeStart || "").getTime();
@@ -375,6 +388,11 @@ function DiscoveryExposureSection({ exposure }: { exposure: any }) {
   const [profileId, setProfileId] = useState<string>(profiles[0]?.targetId || "");
   const panelOptions = panels.filter((p: any) => String(p.target_id) === profileId);
   const [panelName, setPanelName] = useState<string>(panelOptions[0]?.panelName || "");
+  const [rankMax, setRankMax] = useState<number>(10);
+  const [loadingFull, setLoadingFull] = useState(false);
+  const [fullTimeline, setFullTimeline] = useState<any[]>([]);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const activeTimeline = rankMax <= 10 ? embeddedTimeline : fullTimeline;
 
   useEffect(() => {
     const opts = panels.filter((p: any) => String(p.target_id) === profileId);
@@ -383,13 +401,44 @@ function DiscoveryExposureSection({ exposure }: { exposure: any }) {
     }
   }, [profileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const segs = timeline.filter((s: any) => String(s.targetId) === profileId && String(s.panelName) === panelName);
+  const segs = activeTimeline.filter((s: any) => String(s.targetId) === profileId && String(s.panelName) === panelName);
   const segsByRank = new Map<number, any[]>();
   for (const s of segs) {
     const r = Number(s.rank) || 0;
     if (!segsByRank.has(r)) segsByRank.set(r, []);
     segsByRank.get(r)!.push(s);
   }
+
+  const fetchFull = async (opts?: { append?: boolean }) => {
+    if (!weeklyReportId || !profileId || !panelName) return;
+    const append = Boolean(opts?.append);
+    setLoadingFull(true);
+    const off = append ? (nextOffset || 0) : 0;
+    const { data, error } = await supabase.functions.invoke("discover-exposure-timeline", {
+      body: {
+        weeklyReportId,
+        targetId: profileId,
+        panelName,
+        rankMin: 1,
+        rankMax,
+        offset: off,
+        limit: 20000,
+      },
+    });
+    setLoadingFull(false);
+    if (error) return;
+    const segs = Array.isArray(data?.segments) ? data.segments : [];
+    setFullTimeline((prev) => (append ? [...prev, ...segs] : segs));
+    setNextOffset(data?.nextOffset ?? null);
+  };
+
+  useEffect(() => {
+    setFullTimeline([]);
+    setNextOffset(null);
+    if (rankMax <= 10) return;
+    fetchFull();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rankMax, profileId, panelName, weeklyReportId]);
 
   const topRows = topByPanel
     .filter((r: any) => String(r.targetId) === profileId && String(r.panelName) === panelName)
@@ -409,7 +458,7 @@ function DiscoveryExposureSection({ exposure }: { exposure: any }) {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">Config</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2">
+        <CardContent className="grid gap-3 md:grid-cols-3">
           <div>
             <p className="text-xs text-muted-foreground mb-1">Perfil</p>
             <Select value={profileId} onValueChange={setProfileId}>
@@ -440,6 +489,33 @@ function DiscoveryExposureSection({ exposure }: { exposure: any }) {
               </SelectContent>
             </Select>
           </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Ranks</p>
+            <Select value={String(rankMax)} onValueChange={(v) => setRankMax(Number(v))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione o limite de ranks" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">#1..#10 (embutido)</SelectItem>
+                <SelectItem value="50">#1..#50</SelectItem>
+                <SelectItem value="100">#1..#100</SelectItem>
+                <SelectItem value="250">#1..#250</SelectItem>
+                <SelectItem value="500">#1..#500</SelectItem>
+              </SelectContent>
+            </Select>
+            {rankMax > 10 && (
+              <div className="flex items-center justify-between mt-2">
+                <Button size="sm" variant="outline" onClick={() => fetchFull()} disabled={loadingFull}>
+                  {loadingFull ? "Carregando..." : "Recarregar"}
+                </Button>
+                {nextOffset != null && (
+                  <Button size="sm" variant="outline" onClick={() => fetchFull({ append: true })} disabled={loadingFull}>
+                    Carregar mais
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -469,10 +545,10 @@ function DiscoveryExposureSection({ exposure }: { exposure: any }) {
       {panelName && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Rank Timeline (#1..#10)</CardTitle>
+            <CardTitle className="text-sm font-medium">Rank Timeline (#1..#{rankMax})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {Array.from({ length: 10 }).map((_, i) => {
+            {Array.from({ length: rankMax }).map((_, i) => {
               const rank = i + 1;
               const track = segsByRank.get(rank) || [];
               return (

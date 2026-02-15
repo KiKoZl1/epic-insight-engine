@@ -517,6 +517,20 @@ async function runTick(
       if (error) console.log(`[tick] cache stub upsert warning: ${error.message}`);
     }
 
+    // Enqueue Links Service metadata refresh for anything that appeared in this tick (islands + collections).
+    // This is best-effort and should never fail the tick.
+    try {
+      const linkCodes = Array.from(new Set(rowsForDb.map((r) => r.link_code))).slice(0, 5000);
+      if (linkCodes.length) {
+        const { error } = await supabase.functions.invoke("discover-links-metadata-collector", {
+          body: { mode: "refresh_link_codes", linkCodes },
+        });
+        if (error) console.log(`[tick] metadata enqueue warning: ${error.message}`);
+      }
+    } catch (e) {
+      console.log(`[tick] metadata enqueue exception: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
     const panelsCount = Number(applied?.panels_count || panels.length || 0);
     const entriesCount = Number(applied?.entries_count || rowsForDb.length || 0);
     return { ok: true, tickId, panelsCount, entriesCount, durationMs, branch: branchStr, correlation_id: lastCorrelationId || undefined };

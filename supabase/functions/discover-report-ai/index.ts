@@ -94,6 +94,7 @@ serve(async (req) => {
 
     // Build a rich data summary for the AI
     const rankingsSummary = JSON.stringify(rankings, null, 0);
+    const baselineAvailable = Boolean((kpis as any)?.baselineAvailable) || kpis.wowTotalPlays != null;
 
     // WoW context
     const wowContext = kpis.wowTotalPlays != null
@@ -122,6 +123,9 @@ serve(async (req) => {
 ## Data Available
 - **${kpis.totalIslands}** total islands analyzed, **${kpis.activeIslands}** active (5+ players)
 - **${kpis.newMapsThisWeek || 0}** new maps this week, **${kpis.newCreatorsThisWeek || 0}** new creators
+- New maps by Epic publish date (Links metadata): ${((kpis as any).newMapsThisWeekPublished ?? "N/A")}
+- Baseline available for WoW/lifecycle: ${baselineAvailable ? "yes" : "no"}
+- Metadata coverage (title/image): ${JSON.stringify((kpis as any).metadataCoverage || null)}
 - **${kpis.failedIslands || 0}** islands with <500 unique players (low performance)
 - Total Plays: ${kpis.totalPlays}, Total Players: ${kpis.totalUniquePlayers}
 - Total Minutes: ${kpis.totalMinutesPlayed}, Avg Duration: ${kpis.avgPlayDuration?.toFixed(1)} min
@@ -143,6 +147,7 @@ Write insightful narratives for each of the 14 sections below. Each narrative MU
 - Actionable insights for creators (e.g., "Creators should consider X genre given Y trend")
 - Notable standouts or anomalies worth highlighting
 - When WoW data is available, mention trends and changes vs last week
+- If baseline is not available (Baseline available = no), explicitly state that WoW/lifecycle movers are N/A and avoid inferring "stability" from missing data.
 
 Write in English. Be analytical, not generic. Reference specific island names, creators, and categories from the rankings.
 

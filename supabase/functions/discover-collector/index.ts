@@ -1357,12 +1357,22 @@ serve(async (req) => {
         .single();
 
       const weekStart = reportInfo?.week_start;
+      const weekEnd = (await supabase.from("discover_reports").select("week_end").eq("id", reportId).single()).data?.week_end;
+      const weekStartDate = weekStart ? new Date(String(weekStart)).toISOString().slice(0, 10) : null;
+      const weekEndDate = weekEnd ? new Date(String(weekEnd)).toISOString().slice(0, 10) : null;
 
-      // Load cache for new/revived/dead detection
-      const { data: allCache } = await supabase
-        .from("discover_islands_cache")
-        .select("island_code, first_seen_at, last_status, reported_streak, suppressed_streak, last_suppressed_at, last_reported_at, last_week_unique, last_week_plays, last_week_minutes, last_week_peak_ccu, last_week_favorites, last_week_recommends, title, creator_code, category")
-        .limit(50000);
+      // Load cache for new/revived/dead detection (page to avoid hard limits)
+      const allCache: any[] = [];
+      for (let offset = 0; offset < 1_000_000; offset += 10000) {
+        const { data, error } = await supabase
+          .from("discover_islands_cache")
+          .select("island_code, first_seen_at, last_status, reported_streak, suppressed_streak, last_suppressed_at, last_reported_at, last_week_unique, last_week_plays, last_week_minutes, last_week_peak_ccu, last_week_favorites, last_week_recommends, title, creator_code, category")
+          .range(offset, offset + 10000 - 1);
+        if (error) throw new Error(`Failed to page discover_islands_cache: ${error.message}`);
+        const rows = data || [];
+        allCache.push(...rows);
+        if (rows.length < 10000) break;
+      }
       
       const cacheMap = new Map<string, any>();
       for (const c of (allCache || [])) cacheMap.set(c.island_code, c);
@@ -1479,6 +1489,41 @@ serve(async (req) => {
         .limit(1)
         .single();
 
+      const baselineAvailable = Boolean(prevReport?.id);
+
+      // Links metadata derived lists (best-effort; may be empty until metadata collector warms up)
+      let newIslandsByLaunchRows: any[] = [];
+      let newIslandsByLaunchCount: number | null = null;
+      let mostUpdatedRows: any[] = [];
+      try {
+        if (weekStartDate && weekEndDate) {
+          const { data: cnt } = await supabase.rpc("report_new_islands_by_launch_count", {
+            p_report_id: reportId,
+            p_week_start: weekStartDate,
+            p_week_end: weekEndDate,
+          });
+          newIslandsByLaunchCount = cnt != null ? Number(cnt) : null;
+
+          const { data: rows } = await supabase.rpc("report_new_islands_by_launch", {
+            p_report_id: reportId,
+            p_week_start: weekStartDate,
+            p_week_end: weekEndDate,
+            p_limit: 200,
+          });
+          newIslandsByLaunchRows = (rows as any[]) || [];
+
+          const { data: upds } = await supabase.rpc("report_most_updated_islands", {
+            p_report_id: reportId,
+            p_week_start: weekStartDate,
+            p_week_end: weekEndDate,
+            p_limit: 200,
+          });
+          mostUpdatedRows = (upds as any[]) || [];
+        }
+      } catch (e) {
+        console.log(`[finalize] links metadata lists skipped: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
       // If we have a previous report, fetch its island data for WoW deltas
       if (prevReport?.id) {
         const { data: prevIslands } = await supabase
@@ -1553,9 +1598,11 @@ serve(async (req) => {
         ),
         favToPlayRatio: safeDiv(totalFavorites, totalPlays),
         recToPlayRatio: safeDiv(totalRecommends, totalPlays),
-        newMapsThisWeek: newIslandsReported.length,
+        newMapsThisWeek: newIslandsByLaunchCount != null ? newIslandsByLaunchCount : newIslandsReported.length,
+        newMapsThisWeekPublished: newIslandsByLaunchCount,
         newCreatorsThisWeek: newCreatorsList.length,
         failedIslands: failedIslands.length,
+        baselineAvailable,
         // WoW deltas (percentage change)
         wowTotalPlays: wowDelta(totalPlays, prevKpis.totalPlays || 0),
         wowTotalPlayers: wowDelta(totalPlayers, prevKpis.totalUniquePlayers || 0),
@@ -1757,9 +1804,13 @@ serve(async (req) => {
         topFavsPerPlay: topN(enriched, "favToPlayRatio", 10),
         topRecsPerPlay: topN(enriched, "recToPlayRatio", 10),
         trendingTopics,
-        topNewIslandsByPlays: topN(newIslandsReported, "week_plays", 10),
-        topNewIslandsByPlayers: topN(newIslandsReported, "week_unique", 10),
-        topNewIslandsByCCU: topN(newIslandsReported, "week_peak_ccu_max", 10),
+        // Prefer Links metadata "launch date" when available; fallback to cache first_seen_at.
+        topNewIslandsByPlays: topN((newIslandsByLaunchRows?.length ? newIslandsByLaunchRows : newIslandsReported) as any[], "week_plays", 10),
+        topNewIslandsByPlayers: topN((newIslandsByLaunchRows?.length ? newIslandsByLaunchRows : newIslandsReported) as any[], "week_unique", 10),
+        topNewIslandsByCCU: topN((newIslandsByLaunchRows?.length ? newIslandsByLaunchRows : newIslandsReported) as any[], "week_peak_ccu_max", 10),
+        topNewIslandsByPlaysPublished: topN((newIslandsByLaunchRows || []) as any[], "week_plays", 10),
+        topNewIslandsByPlayersPublished: topN((newIslandsByLaunchRows || []) as any[], "week_unique", 10),
+        mostUpdatedIslandsThisWeek: topN((mostUpdatedRows || []) as any[], "week_plays", 20),
         failedIslandsList: failedIslands
           .sort((a: any, b: any) => (a.week_unique || 0) - (b.week_unique || 0))
           .slice(0, 10)

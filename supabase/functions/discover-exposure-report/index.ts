@@ -136,15 +136,33 @@ serve(async (req) => {
       rankSegs.push(...rows);
     }
 
-    const islandCodes = Array.from(
-      new Set(
-        rankSegs
-          .filter((s) => String(s.link_code_type) === "island")
-          .map((s) => String(s.link_code)),
-      ),
+    const allCodes = Array.from(
+      new Set(rankSegs.map((s) => String(s.link_code))),
     );
 
-    const islandMeta = new Map<string, { title: string | null; creator_code: string | null }>();
+    // Canonical card metadata (islands + collections)
+    const linkMeta = new Map<string, { title: string | null; creator_code: string | null; image_url: string | null }>();
+    for (let i = 0; i < allCodes.length; i += 1000) {
+      const chunk = allCodes.slice(i, i + 1000);
+      const { data, error } = await supabase
+        .from("discover_link_metadata")
+        .select("link_code,title,support_code,image_url")
+        .in("link_code", chunk);
+      if (error) throw new Error(error.message);
+      for (const r of data || []) {
+        linkMeta.set(String(r.link_code), {
+          title: r.title ?? null,
+          creator_code: (r as any).support_code ?? null,
+          image_url: (r as any).image_url ?? null,
+        });
+      }
+    }
+
+    // Fallback for islands (legacy cache might still have creator_code/category)
+    const islandCodes = Array.from(
+      new Set(rankSegs.filter((s) => String(s.link_code_type) === "island").map((s) => String(s.link_code))),
+    );
+    const islandFallback = new Map<string, { title: string | null; creator_code: string | null }>();
     for (let i = 0; i < islandCodes.length; i += 1000) {
       const chunk = islandCodes.slice(i, i + 1000);
       const { data, error } = await supabase
@@ -153,7 +171,7 @@ serve(async (req) => {
         .in("island_code", chunk);
       if (error) throw new Error(error.message);
       for (const r of data || []) {
-        islandMeta.set(String(r.island_code), { title: r.title ?? null, creator_code: r.creator_code ?? null });
+        islandFallback.set(String(r.island_code), { title: r.title ?? null, creator_code: r.creator_code ?? null });
       }
     }
 
@@ -196,7 +214,8 @@ serve(async (req) => {
 
     const topByPanel: any[] = (topByPanelRows || []).map((r: any) => {
       const code = String(r.link_code);
-      const meta = islandMeta.get(code);
+      const m = linkMeta.get(code);
+      const fb = r.link_code_type === "island" ? islandFallback.get(code) : null;
       return {
         targetId: r.target_id,
         surfaceName: r.surface_name,
@@ -207,8 +226,9 @@ serve(async (req) => {
         ccuMaxSeen: r.ccu_max_seen != null ? Number(r.ccu_max_seen) : null,
         bestRank: r.best_rank != null ? Number(r.best_rank) : null,
         avgRank: r.avg_rank != null ? Number(r.avg_rank) : null,
-        title: meta?.title ?? null,
-        creatorCode: meta?.creator_code ?? null,
+        title: m?.title ?? fb?.title ?? null,
+        creatorCode: m?.creator_code ?? fb?.creator_code ?? null,
+        imageUrl: m?.image_url ?? null,
       };
     });
 
@@ -218,7 +238,8 @@ serve(async (req) => {
       const clampedStart = start < rangeStart ? rangeStart : start;
       const clampedEnd = end > rangeEnd ? rangeEnd : end;
       const code = String(s.link_code);
-      const meta = String(s.link_code_type) === "island" ? islandMeta.get(code) : null;
+      const m = linkMeta.get(code);
+      const fb = String(s.link_code_type) === "island" ? islandFallback.get(code) : null;
       return {
         targetId: s.target_id,
         surfaceName: s.surface_name,
@@ -230,8 +251,9 @@ serve(async (req) => {
         linkCode: code,
         linkCodeType: s.link_code_type,
         ccuMax: s.ccu_max != null ? Number(s.ccu_max) : null,
-        title: meta?.title ?? null,
-        creatorCode: meta?.creator_code ?? null,
+        title: m?.title ?? fb?.title ?? null,
+        creatorCode: m?.creator_code ?? fb?.creator_code ?? null,
+        imageUrl: m?.image_url ?? null,
       };
     });
 
