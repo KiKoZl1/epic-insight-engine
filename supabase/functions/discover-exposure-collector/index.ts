@@ -21,6 +21,7 @@ type Mode =
   | "tick"
   | "maintenance"
   | "intel_refresh"
+  | "diagnose_rating"
   | "config_status"
   | "set_paused"
   | "bootstrap_device_auth";
@@ -640,6 +641,82 @@ serve(async (req) => {
       const { data, error } = await supabase.rpc("compute_discovery_public_intel", args);
       if (error) return json({ success: false, error: error.message }, 500);
       return json({ success: true, mode, intel: data });
+    }
+
+    if (mode === "diagnose_rating") {
+      await requireAdminOrEditor(req, supabase);
+      const regions = Array.isArray(body.regions) ? body.regions : ["BR", "NAE", "EU"];
+      const surfaceName = String(body.surfaceName || "CreativeDiscoverySurface_Frontend");
+      const auth = await getAuthContext();
+
+      const diagnosticResults: any[] = [];
+      for (const region of regions) {
+        try {
+          // Build body WITHOUT ratingAuthority and rating
+          const bodyNoRating: any = {
+            playerId: auth.accountId,
+            partyMemberIds: [auth.accountId],
+            locale: "en",
+            matchmakingRegion: region,
+            platform: "Windows",
+            isCabined: false,
+            numLocalPlayers: 1,
+          };
+          const surfResp = await fetchSurface(surfaceName, auth.branchStr, auth.accessToken, auth.discAccessToken, bodyNoRating);
+          const sj = surfResp.json;
+          const panels = Array.isArray(sj?.panels) ? sj.panels : [];
+          const panelSummaries = panels.map((p: any) => ({
+            panelName: p?.panelName || null,
+            panelDisplayName: p?.panelDisplayName || null,
+            panelType: p?.panelType || null,
+            featureTags: p?.featureTags || null,
+            resultsCount: Array.isArray(p?.firstPage?.results) ? p.firstPage.results.length : 0,
+            hasMore: p?.firstPage?.hasMore || false,
+          }));
+
+          // Also run WITH rating for comparison
+          const bodyWithRating = { ...bodyNoRating, ratingAuthority: "ESRB", rating: "TEEN" };
+          const surfRespWith = await fetchSurface(surfaceName, auth.branchStr, auth.accessToken, auth.discAccessToken, bodyWithRating);
+          const sjWith = surfRespWith.json;
+          const panelsWith = Array.isArray(sjWith?.panels) ? sjWith.panels : [];
+          const panelSummariesWith = panelsWith.map((p: any) => ({
+            panelName: p?.panelName || null,
+            panelDisplayName: p?.panelDisplayName || null,
+            panelType: p?.panelType || null,
+            featureTags: p?.featureTags || null,
+            resultsCount: Array.isArray(p?.firstPage?.results) ? p.firstPage.results.length : 0,
+            hasMore: p?.firstPage?.hasMore || false,
+          }));
+
+          // Find panels that exist in one but not the other
+          const namesNoRating = new Set(panelSummaries.map((p: any) => p.panelName));
+          const namesWithRating = new Set(panelSummariesWith.map((p: any) => p.panelName));
+          const onlyWithoutRating = panelSummaries.filter((p: any) => !namesWithRating.has(p.panelName));
+          const onlyWithRating = panelSummariesWith.filter((p: any) => !namesNoRating.has(p.panelName));
+
+          diagnosticResults.push({
+            region,
+            testVariantName_noRating: sj?.testVariantName || null,
+            testVariantName_withRating: sjWith?.testVariantName || null,
+            panels_noRating_count: panelSummaries.length,
+            panels_withRating_count: panelSummariesWith.length,
+            panels_noRating: panelSummaries,
+            panels_withRating: panelSummariesWith,
+            diff: {
+              onlyWithoutRating,
+              onlyWithRating,
+            },
+          });
+        } catch (e) {
+          diagnosticResults.push({
+            region,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+
+      console.log("[diagnose_rating] results:", JSON.stringify(diagnosticResults, null, 2));
+      return json({ success: true, mode, branch: auth.branchStr, diagnostics: diagnosticResults });
     }
 
     if (mode === "tick") {
