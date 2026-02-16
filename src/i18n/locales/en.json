@@ -162,7 +162,19 @@
     "s18Title": "Island Lifecycle",
     "s18Desc": "Revived, dead, and breakout islands",
     "s19Title": "Discovery Exposure",
-    "s19Desc": "Panel visibility and exposure timeline"
+    "s19Desc": "Panel visibility and exposure timeline",
+    "s20Title": "Multi-Panel Presence",
+    "s20Desc": "Islands appearing across the most distinct Discovery panels",
+    "s21Title": "Panel Loyalty (Residents)",
+    "s21Desc": "Islands with the longest exposure in a single panel",
+    "s22Title": "Most Updated Islands",
+    "s22Desc": "Islands with the most version iterations by creators",
+    "s23Title": "Rookie Creators",
+    "s23Desc": "New creators debuting this week with standout performance",
+    "s24Title": "Player Capacity Analysis",
+    "s24Desc": "Performance breakdown by max player count tiers",
+    "s25Title": "UEFN vs Fortnite Creative",
+    "s25Desc": "Tool comparison: which development environment produces better results"
   },
   "kpis": {
     "activeIslands": "Active Islands",
@@ -188,7 +200,12 @@
     "recommendations": "Recommendations",
     "totalIslands": "Total Islands",
     "uniqueCreators": "Unique Creators",
-    "avgMapsPerCreator": "Avg Maps/Creator"
+    "avgMapsPerCreator": "Avg Maps/Creator",
+    "avgVersion": "Avg Version",
+    "v5PlusIslands": "v5+ Islands",
+    "totalWithVersion": "With Version Data",
+    "totalRookieCreators": "New Creators",
+    "totalRookieIslands": "New Islands"
   },
   "rankings": {
     "topPeakCCU": "Top 10 Peak CCU (Global)",
@@ -232,7 +249,12 @@
     "topRetentionAdjD7": "Retention-Adj Engagement (D7)",
     "topWeeklyGrowth": "Top Weekly Growth (Breakouts)",
     "retentionDistribution": "Retention Distribution",
-    "lowPerfHistogram": "Low Performance Distribution"
+    "lowPerfHistogram": "Low Performance Distribution",
+    "multiPanelPresence": "Multi-Panel Presence (Top 10)",
+    "panelLoyalty": "Panel Residents (Top 10)",
+    "rookieCreators": "Rookie Creators (Top 10)",
+    "capacityAnalysis": "Performance by Capacity Tier",
+    "toolSplit": "UEFN vs FNC Comparison"
   },
   "discover": {
     "title": "Discovery Live",

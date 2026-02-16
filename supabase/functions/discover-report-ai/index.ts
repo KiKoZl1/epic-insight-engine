@@ -106,6 +106,16 @@ serve(async (req) => {
       breakouts: r.breakouts?.slice?.(0, 10) || [],
       revivedIslands: r.revivedIslands?.slice?.(0, 10) || [],
       deadIslands: r.deadIslands?.slice?.(0, 10) || [],
+      // NEW: Sections 20-25 data
+      toolSplit: r.toolSplit || [],
+      capacityAnalysis: r.capacityAnalysis || [],
+      rookieCreators: r.rookieCreators?.slice?.(0, 10) || [],
+      totalRookieCreators: r.totalRookieCreators || 0,
+      totalRookieIslands: r.totalRookieIslands || 0,
+      multiPanelPresence: r.multiPanelPresence?.slice?.(0, 10) || [],
+      panelLoyalty: r.panelLoyalty?.slice?.(0, 10) || [],
+      versionEnrichment: r.versionEnrichment || null,
+      sacCoverage: r.sacCoverage || null,
     }, null, 0);
     const baselineAvailable = Boolean((kpis as any)?.baselineAvailable) || kpis.wowTotalPlays != null;
 
@@ -159,7 +169,7 @@ ${evidenceSummary || "Not available yet."}
 ${exposureSummary ? JSON.stringify(exposureSummary, null, 0) : "Not available for this week (collector not running or insufficient data yet)."}
 
 ## Instructions
-Write insightful narratives for each of the 19 sections below. Each narrative MUST be 4-6 sentences long, data-driven, and include:
+Write insightful narratives for each of the 25 sections below. Each narrative MUST be 4-6 sentences long, data-driven, and include:
 - Specific numbers and percentages from the data
 - Comparisons and patterns (e.g., "The top 3 islands account for X% of total plays")
 - Actionable insights for creators (e.g., "Creators should consider X genre given Y trend")
@@ -197,14 +207,20 @@ Sections:
 16. Weekly Growth / Breakouts - If baseline available: biggest risers by play delta, breakout detection. If NO baseline: analyze the current week's top performers as the "starting lineup", discuss which islands show signs of breakout potential based on their absolute metrics (high plays + high retention = likely breakout candidate)
 17. Risers & Decliners - If baseline available: specific WoW movers. If NO baseline: identify potential risers/decliners by analyzing metric imbalances (e.g., high plays but low retention = at risk of declining; low plays but high retention = poised to rise with more visibility)
 18. Island Lifecycle - revived islands, dead islands, breakout stories. If NO baseline: describe the ecosystem's current composition as the lifecycle starting point
-19. Discovery Exposure - which panels drove exposure, time-in-panel patterns, churn/stability, and actionable positioning insights (based on panel/rank timeline)`;
+19. Discovery Exposure - which panels drove exposure, time-in-panel patterns, churn/stability, and actionable positioning insights (based on panel/rank timeline)
+20. Multi-Panel Presence - islands appearing in the most DISTINCT panels. Analyze versatility: which islands does Epic's algorithm distribute across multiple categories? Reference multiPanelPresence data with panel_names arrays. Highlight what makes these islands algorithmically versatile.
+21. Panel Loyalty (Residents) - islands with the longest cumulative exposure in a SINGLE panel. These are "category residents" that dominate a specific panel. Reference panelLoyalty data. Analyze what makes an island "own" a panel position.
+22. Most Updated Islands - islands with the highest version numbers (most iterations by creators). Reference mostUpdatedIslandsThisWeek and versionEnrichment data. Analyze the correlation between update frequency and performance. Include version distribution stats.
+23. Rookie Creators - new creators (first_seen this week) with standout performance. Reference rookieCreators data. Analyze how rookies compare to established creators. Highlight total new creators and their best islands.
+24. Player Capacity Analysis - performance breakdown by max_players tiers (Solo, Duo, Squad, Party, Large, Massive). Reference capacityAnalysis data. Which player count drives the best retention/engagement? Actionable insights for creators choosing party sizes.
+25. UEFN vs Fortnite Creative - tool split comparison. Reference toolSplit data. Compare avg plays, retention, CCU, minutes between UEFN and FNC islands. Which tool produces better-performing islands? What does this mean for creators choosing their development tool?`;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     // ── Step 1: Generate English narratives ──
     const sectionProps: Record<string, any> = {};
-    for (let i = 1; i <= 19; i++) {
+    for (let i = 1; i <= 25; i++) {
       sectionProps[`section${i}`] = {
         type: "object",
         properties: {
