@@ -542,44 +542,51 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Auth guard: require service_role key OR authenticated admin/editor
+    // Auth guard: require service_role key, anon key (for cron), or authenticated admin/editor
     const authHeader = req.headers.get("Authorization") || "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const sbUrl = Deno.env.get("SUPABASE_URL")!;
     const isServiceRole = authHeader === `Bearer ${serviceKey}`;
-
-    if (!isServiceRole) {
-      // Check if caller is an authenticated admin/editor
-      if (!authHeader.startsWith("Bearer ")) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-      const userSb = createClient(sbUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
-      const token = authHeader.replace("Bearer ", "");
-      const { data: claimsData, error: claimsErr } = await userSb.auth.getClaims(token);
-      if (claimsErr || !claimsData?.claims) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const userId = claimsData.claims.sub;
-      const { data: roles } = await createClient(sbUrl, serviceKey)
-        .from("user_roles").select("role").eq("user_id", userId).in("role", ["admin", "editor"]).limit(1);
-      if (!roles || roles.length === 0) {
-        return new Response(JSON.stringify({ error: "Forbidden: admin/editor role required" }), {
-          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    const supabase = createClient(sbUrl, serviceKey);
+    const isAnonKey = authHeader === `Bearer ${anonKey}`;
 
     let body: any = {};
     try { body = await req.json(); } catch { /* empty body ok */ }
 
     const mode = body.mode || "start";
+
+    // Cron-safe modes: allow anon key (cron jobs send anon key)
+    const cronSafeModes = ["orchestrate", "start"];
+
+    if (!isServiceRole) {
+      if (isAnonKey && cronSafeModes.includes(mode)) {
+        // Allow cron jobs through for safe modes
+      } else {
+        // Check if caller is an authenticated admin/editor
+        if (!authHeader.startsWith("Bearer ")) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const userSb = createClient(sbUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
+        const { data: userData, error: uErr } = await userSb.auth.getUser();
+        if (uErr || !userData?.user?.id) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const userId = userData.user.id;
+        const { data: roles } = await createClient(sbUrl, serviceKey)
+          .from("user_roles").select("role").eq("user_id", userId).in("role", ["admin", "editor"]).limit(1);
+        if (!roles || roles.length === 0) {
+          return new Response(JSON.stringify({ error: "Forbidden: admin/editor role required" }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+    }
+
+    const supabase = createClient(sbUrl, serviceKey);
     const reportId = body.reportId || null;
 
     // ======================== MODE: START ========================
