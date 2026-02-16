@@ -158,8 +158,6 @@ export default function AdminOverview() {
   // Metadata
   const [meta, setMeta] = useState<MetaData | null>(null);
   const [metaThroughput, setMetaThroughput] = useState<number | null>(null);
-  const prevMetaTitle = useRef<number | null>(null);
-  const prevMetaTs = useRef<number>(Date.now());
 
   // Exposure
   const [exposure, setExposure] = useState<ExposureData | null>(null);
@@ -196,91 +194,76 @@ export default function AdminOverview() {
   // ─── Fetch functions ─────────────────────────────────────
 
   const fetchCensus = useCallback(async () => {
-    const [reportsRes, weeklyRes] = await Promise.all([
+    const [censusRpc, reportsRes, weeklyRes] = await Promise.all([
+      supabase.rpc("get_census_stats"),
       supabase.from("discover_reports").select("id", { count: "exact", head: true }),
       supabase.from("weekly_reports").select("id, published_at"),
     ]);
 
-    // Cache census via raw counts
-    const { count: totalIslands } = await supabase.from("discover_islands_cache").select("island_code", { count: "exact", head: true });
-    const { count: reported } = await supabase.from("discover_islands_cache").select("island_code", { count: "exact", head: true }).eq("last_status", "reported");
-    const { count: suppressed } = await supabase.from("discover_islands_cache").select("island_code", { count: "exact", head: true }).eq("last_status", "suppressed");
-    const { count: withTitle } = await supabase.from("discover_islands_cache").select("island_code", { count: "exact", head: true }).not("title", "is", null);
-    const { count: uniqueCreators } = await supabase.from("discover_islands_cache").select("creator_code", { count: "exact", head: true }).not("creator_code", "is", null);
-
-    const total = totalIslands || 0;
-    const rep = reported || 0;
-    const sup = suppressed || 0;
+    const cs = censusRpc?.data as any || {};
+    const total = Number(cs.total_islands || 0);
+    const rep = Number(cs.reported || 0);
+    const sup = Number(cs.suppressed || 0);
 
     setCensus({
       totalIslands: total,
       reported: rep,
       suppressed: sup,
       otherStatus: total - rep - sup,
-      withTitle: withTitle || 0,
-      uniqueCreators: uniqueCreators || 0,
+      withTitle: Number(cs.with_title || 0),
+      uniqueCreators: Number(cs.unique_creators || 0),
       engineReports: reportsRes?.count || 0,
       weeklyReports: weeklyRes?.data?.length || 0,
       weeklyPublished: weeklyRes?.data?.filter((r: any) => r.published_at)?.length || 0,
     });
 
-    // Push to sparkline history
     const h = censusHistory.current;
     const pushH = (key: string, val: number) => { h[key] = [...(h[key] || []).slice(-30), val]; };
     pushH("total", total);
     pushH("reported", rep);
     pushH("suppressed", sup);
-    pushH("otherStatus", total - rep - sup);
-    pushH("withTitle", withTitle || 0);
-    pushH("uniqueCreators", uniqueCreators || 0);
-    pushH("engineReports", reportsRes?.count || 0);
-    pushH("weeklyReports", weeklyRes?.data?.length || 0);
   }, []);
 
-  const fetchMeta = useCallback(async () => {
-    const [totalR, titleR, errorR, pendingR, lockedR, dueR, islandR, collR] = await Promise.all([
-      supabase.from("discover_link_metadata").select("link_code", { count: "exact", head: true }),
-      supabase.from("discover_link_metadata").select("link_code", { count: "exact", head: true }).not("title", "is", null),
-      supabase.from("discover_link_metadata").select("link_code", { count: "exact", head: true }).not("last_error", "is", null).is("title", null),
-      supabase.from("discover_link_metadata").select("link_code", { count: "exact", head: true }).is("title", null).is("last_error", null),
-      supabase.from("discover_link_metadata").select("link_code", { count: "exact", head: true }).not("locked_at", "is", null),
-      supabase.from("discover_link_metadata").select("link_code", { count: "exact", head: true }).lte("next_due_at", new Date().toISOString()),
-      supabase.from("discover_link_metadata").select("link_code", { count: "exact", head: true }).eq("link_code_type", "island"),
-      supabase.from("discover_link_metadata").select("link_code", { count: "exact", head: true }).eq("link_code_type", "collection"),
-    ]);
+  // Rolling throughput: keep last N samples with timestamps
+  const metaSamples = useRef<{ ts: number; val: number }[]>([]);
 
-    const wt = titleR?.count || 0;
+  const fetchMeta = useCallback(async () => {
+    const { data: ms, error } = await supabase.rpc("get_metadata_pipeline_stats");
+    if (error || !ms) return;
+
+    const stats = ms as any;
+    const wt = Number(stats.with_title || 0);
     const now = Date.now();
 
-    // Throughput calc
-    if (prevMetaTitle.current !== null) {
-      const delta = wt - prevMetaTitle.current;
-      const elapsedMin = (now - prevMetaTs.current) / 1000 / 60;
-      if (elapsedMin > 0.05 && delta >= 0) {
-        setMetaThroughput(Math.round(delta / elapsedMin));
+    // Rolling throughput over 60s window
+    metaSamples.current.push({ ts: now, val: wt });
+    // Keep only last 2 minutes of samples
+    metaSamples.current = metaSamples.current.filter(s => now - s.ts < 120_000);
+    if (metaSamples.current.length >= 2) {
+      const oldest = metaSamples.current[0];
+      const newest = metaSamples.current[metaSamples.current.length - 1];
+      const deltaVal = newest.val - oldest.val;
+      const deltaMin = (newest.ts - oldest.ts) / 60_000;
+      if (deltaMin > 0.1 && deltaVal >= 0) {
+        setMetaThroughput(Math.round(deltaVal / deltaMin));
       }
     }
-    prevMetaTitle.current = wt;
-    prevMetaTs.current = now;
 
     setMeta({
-      total: totalR?.count || 0,
+      total: Number(stats.total || 0),
       withTitle: wt,
-      withError: errorR?.count || 0,
-      pendingNoData: pendingR?.count || 0,
-      locked: lockedR?.count || 0,
-      dueNow: dueR?.count || 0,
-      islands: islandR?.count || 0,
-      collections: collR?.count || 0,
+      withError: Number(stats.with_error || 0),
+      pendingNoData: Number(stats.pending_no_data || 0),
+      locked: Number(stats.locked || 0),
+      dueNow: Number(stats.due_now || 0),
+      islands: Number(stats.islands || 0),
+      collections: Number(stats.collections || 0),
     });
 
-    // Push to sparkline history
     const mh = metaHistory.current;
     const pushMH = (key: string, val: number) => { mh[key] = [...(mh[key] || []).slice(-30), val]; };
-    pushMH("total", totalR?.count || 0);
+    pushMH("total", Number(stats.total || 0));
     pushMH("withTitle", wt);
-    pushMH("withError", errorR?.count || 0);
-    pushMH("pendingNoData", pendingR?.count || 0);
   }, []);
 
   const handleEnqueue = useCallback(async () => {
@@ -288,14 +271,13 @@ export default function AdminOverview() {
     try {
       const res = await supabase.functions.invoke("discover-enqueue-gap", { body: {} });
       if (res.error) throw new Error(res.error.message);
-      const { enqueued, submitted } = res.data || {};
-      const inserted = typeof enqueued === "number" ? enqueued : Number(enqueued?.inserted || 0);
-      const updated = typeof enqueued === "object" && enqueued ? Number(enqueued.updated || 0) : 0;
-      toast({ title: "Enfileiramento concluído", description: `${inserted} novas enfileiradas (${updated} bump) de ${submitted} submetidas.` });
-      addLog(`Enfileirar Top 5K: ${inserted} novas (${updated} bump) de ${submitted}`);
-      // Re-fetch both meta and census so GAP updates visually
+      const d = res.data || {};
+      const inserted = Number(d.inserted || 0);
+      const updated = Number(d.updated || 0);
+      const submitted = Number(d.submitted || 0);
+      toast({ title: "Enfileiramento concluído", description: `${fmt(inserted)} novas + ${fmt(updated)} atualizadas de ${fmt(submitted)} submetidas (${((d.elapsed_ms || 0) / 1000).toFixed(1)}s).` });
+      addLog(`Enfileirar: ${fmt(inserted)} novas (${fmt(updated)} bump) de ${fmt(submitted)}`);
       await Promise.all([fetchMeta(), fetchCensus()]);
-      // Flash highlight on metadata section
       setMetaFlash(true);
       setTimeout(() => setMetaFlash(false), 2000);
     } catch (e: any) {
@@ -353,14 +335,20 @@ export default function AdminOverview() {
 
   // ─── Polling ──────────────────────────────────────────────
 
+  // Fast polling for metadata (5s), slower for everything else (30s)
   useEffect(() => {
-    const tick = async () => {
-      await Promise.all([fetchCensus(), fetchMeta(), fetchExposure(), fetchCrons(), fetchReports(), fetchAlerts()]);
+    const tickFast = async () => {
+      await fetchMeta();
       setLastRefresh(timeNow());
     };
-    tick();
-    const id = setInterval(tick, 10_000);
-    return () => clearInterval(id);
+    const tickSlow = async () => {
+      await Promise.all([fetchCensus(), fetchExposure(), fetchCrons(), fetchReports(), fetchAlerts()]);
+    };
+    tickFast();
+    tickSlow();
+    const fastId = setInterval(tickFast, 5_000);
+    const slowId = setInterval(tickSlow, 30_000);
+    return () => { clearInterval(fastId); clearInterval(slowId); };
   }, [fetchCensus, fetchMeta, fetchExposure, fetchCrons, fetchReports, fetchAlerts]);
 
   // ─── Weekly pipeline (preserved logic) ────────────────────
@@ -458,8 +446,9 @@ export default function AdminOverview() {
   const reportHealth: HealthStatus = generating ? "ok" : genState.phase === "done" ? "ok" : "idle";
 
   const metaPct = meta && meta.total > 0 ? (meta.withTitle / meta.total) * 100 : 0;
-  const metaGap = (census?.totalIslands || 0) - (meta?.total || 0);
-  const metaEta = metaThroughput && metaThroughput > 0 && meta ? Math.ceil((meta.total - meta.withTitle) / metaThroughput) : null;
+  const metaGap = (census?.totalIslands || 0) - (meta?.islands || 0);
+  const metaPending = meta ? meta.total - meta.withTitle : 0;
+  const metaEta = metaThroughput && metaThroughput > 0 && metaPending > 0 ? Math.ceil(metaPending / metaThroughput) : null;
 
   const alertBad = alerts.filter(a => a.severity !== "ok");
   const alertStatus: HealthStatus =
@@ -553,13 +542,25 @@ export default function AdminOverview() {
             {/* Progress bar */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-sm font-medium">Preenchimento: {fmt(meta?.withTitle)} / {fmt(meta?.total)}</span>
+                <span className="text-sm font-medium">Preenchimento: {fmt(meta?.withTitle)} / {fmt(meta?.total)} enfileiradas</span>
                 <span className="text-sm font-mono font-bold">{metaPct.toFixed(1)}%</span>
               </div>
               <Progress value={metaPct} className="h-3" />
               <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
-                <span>{metaThroughput !== null ? `${fmt(metaThroughput)} ilhas/min` : "Calculando throughput..."}</span>
-                <span>{metaEta !== null ? (metaEta <= 0 ? "Concluido" : `ETA: ~${metaEta} min`) : "ETA: --"}</span>
+                <span className="flex items-center gap-1">
+                  {metaThroughput !== null && metaThroughput > 0 ? (
+                    <><Zap className="h-3 w-3 text-green-500" /> {fmt(metaThroughput)} ilhas/min</>
+                  ) : metaThroughput === 0 ? (
+                    <><Clock className="h-3 w-3" /> Parado — aguardando collector</>
+                  ) : (
+                    <><Clock className="h-3 w-3" /> Calculando throughput...</>
+                  )}
+                </span>
+                <span>
+                  {metaEta !== null ? (
+                    metaEta <= 0 ? "✓ Concluído" : `ETA: ~${metaEta < 60 ? `${metaEta} min` : `${Math.round(metaEta / 60)}h ${metaEta % 60}m`}`
+                  ) : (metaPending > 0 ? `${fmt(metaPending)} pendentes` : "ETA: --")}
+                </span>
               </div>
             </div>
 
@@ -586,12 +587,12 @@ export default function AdminOverview() {
               <div className="pt-1 border-t flex items-center justify-between gap-2">
                 <div>
                   <span className="text-muted-foreground">GAP:</span>{" "}
-                  <span className="font-bold text-destructive">{fmt(metaGap)}</span>{" "}
+                  <span className={`font-bold ${metaGap > 0 ? "text-destructive" : "text-green-500"}`}>{fmt(metaGap)}</span>{" "}
                   <span className="text-muted-foreground">ilhas do cache sem metadata enfileirado</span>
                 </div>
                 <Button size="sm" variant="outline" onClick={handleEnqueue} disabled={enqueueLoading || metaGap <= 0} className="text-xs shrink-0">
                   {enqueueLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Zap className="h-3 w-3 mr-1" />}
-                  Enfileirar Top 5K
+                  Enfileirar GAP
                 </Button>
               </div>
             </div>
