@@ -174,7 +174,9 @@
     "s24Title": "Análise por Capacidade de Jogadores",
     "s24Desc": "Performance por faixa de número máximo de jogadores",
     "s25Title": "UEFN vs Fortnite Creative",
-    "s25Desc": "Comparação de ferramentas: qual ambiente produz melhores resultados"
+    "s25Desc": "Comparação de ferramentas: qual ambiente produz melhores resultados",
+    "s26Title": "Eficiência de Exposição",
+    "s26Desc": "Quais ilhas convertem melhor a exposição nos painéis do Discovery em plays reais"
   },
   "kpis": {
     "activeIslands": "Ilhas Ativas",
@@ -254,7 +256,12 @@
     "panelLoyalty": "Residentes de Painel (Top 10)",
     "rookieCreators": "Criadores Estreantes (Top 10)",
     "capacityAnalysis": "Performance por Capacidade",
-    "toolSplit": "Comparação UEFN vs FNC"
+    "toolSplit": "Comparação UEFN vs FNC",
+    "topExposureEfficiency": "Melhores Conversores (Plays / Min Exposto)",
+    "worstExposureEfficiency": "Piores Conversores (Plays / Min Exposto)",
+    "islandsWithExposure": "Ilhas com Dados de Exposição",
+    "avgPlaysPerMin": "Avg Plays/Min Exposto",
+    "medianPlaysPerMin": "Mediana Plays/Min"
   },
   "discover": {
     "title": "Discovery Live",
