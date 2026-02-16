@@ -1463,16 +1463,24 @@ serve(async (req) => {
       const cacheMap = new Map<string, any>();
       for (const c of (allCache || [])) cacheMap.set(c.island_code, c);
 
-      // Fetch all reported islands for this report
-      const { data: reportedIslands, error: riError } = await supabase
-        .from("discover_report_islands")
-        .select("*")
-        .eq("report_id", reportId)
-        .eq("status", "reported");
+      // Fetch ALL reported islands for this report (paginated — PostgREST max 1000 rows per request)
+      const ISLAND_COLS = "island_code,title,creator_code,category,tags,created_in,status,week_plays,week_unique,week_minutes,week_peak_ccu_max,week_favorites,week_recommends,week_d1_avg,week_d7_avg,week_minutes_per_player_avg";
+      const allReportedIslands: any[] = [];
+      const PAGE = 1000;
+      for (let offset = 0; ; offset += PAGE) {
+        const { data, error } = await supabase
+          .from("discover_report_islands")
+          .select(ISLAND_COLS)
+          .eq("report_id", reportId)
+          .eq("status", "reported")
+          .range(offset, offset + PAGE - 1);
+        if (error) throw new Error(`Failed to fetch report islands page ${offset}: ${error.message}`);
+        const rows = data || [];
+        allReportedIslands.push(...rows);
+        if (rows.length < PAGE) break;
+      }
 
-      if (riError) throw new Error(`Failed to fetch report islands: ${riError.message}`);
-
-      const islands = reportedIslands || [];
+      const islands = allReportedIslands;
       console.log(`[finalize] ${islands.length} reported islands`);
 
       // Get counts
@@ -1706,16 +1714,21 @@ serve(async (req) => {
           .filter((i) => i[key] != null && Number(i[key]) > 0 && (!opts?.filter || opts.filter(i)))
           .sort((a, b) => Number(b[key]) - Number(a[key]))
           .slice(0, n)
-          .map((i) => ({
-            code: i.island_code || i.code,
-            title: i.title || i.island_code || i.code,
-            creator: i.creator_code || i.creator || "unknown",
-            category: i.category || "Fortnite UGC",
-            value: Number(i[key]),
-            name: i.title || i.name || i.creator_code || i.island_code || i.code,
-            ...(opts?.label ? { label: opts.label(i) } : {}),
-            ...(opts?.subtitle ? { subtitle: opts.subtitle(i) } : {}),
-          }));
+          .map((i) => {
+            const mappedValue = Number(i[key]);
+            const mapped = {
+              code: i.island_code || i.code,
+              title: i.title || i.island_code || i.code,
+              creator: i.creator_code || i.creator || "unknown",
+              category: i.category || "Fortnite UGC",
+              value: mappedValue,
+              name: i.title || i.name || i.creator_code || i.island_code || i.code,
+            } as any;
+            // Pass mapped item with value to label/subtitle formatters
+            if (opts?.label) mapped.label = opts.label({ ...i, value: mappedValue });
+            if (opts?.subtitle) mapped.subtitle = opts.subtitle({ ...i, value: mappedValue });
+            return mapped;
+          });
 
       // UGC filter
       const ugcIslands = islands.filter((i: any) => i.creator_code !== "fortnite" && i.creator_code !== "epic");
@@ -1877,19 +1890,24 @@ serve(async (req) => {
       }
 
       // --- New Rankings with Quality Filters ---
-      const fmtPct = (v: any) => `${(Number(v.value) * 100).toFixed(1)}%`;
-      const fmtNum = (v: any) => Number(v.value).toLocaleString();
-      const fmtMin = (v: any) => `${Number(v.value).toFixed(1)} min`;
+      const fmtPct = (v: any) => `${(Number(v?.value ?? 0) * 100).toFixed(1)}%`;
+      const fmtNum = (v: any) => Number(v?.value ?? 0).toLocaleString();
+      const fmtMin = (v: any) => `${Number(v?.value ?? 0).toFixed(1)} min`;
+
+      // Build enriched map for O(1) lookups
+      const enrichedMap = new Map<string, any>();
+      for (const e of enriched) enrichedMap.set(e.island_code, e);
+      const ugcEnriched = ugcIslands.map((i: any) => ({ ...i, ...(enrichedMap.get(i.island_code) || {}) }));
 
       const computedRankings = {
         topPeakCCU: topN(enriched, "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
-        topPeakCCU_UGC: topN(ugcIslands.map((i: any) => ({ ...i, ...enriched.find((e: any) => e.island_code === i.island_code) })), "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
-        topAvgPeakCCU: topN(enriched, "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }), // Using max as proxy for avg peak for now until avg metric available
-        topAvgPeakCCU_UGC: topN(ugcIslands.map((i: any) => ({ ...i, ...enriched.find((e: any) => e.island_code === i.island_code) })), "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
+        topPeakCCU_UGC: topN(ugcEnriched, "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
+        topAvgPeakCCU: topN(enriched, "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
+        topAvgPeakCCU_UGC: topN(ugcEnriched, "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
         
         topUniquePlayers: topN(enriched, "week_unique", 10, { label: fmtNum }),
         topTotalPlays: topN(enriched, "week_plays", 10, { label: fmtNum }),
-        topMinutesPlayed: topN(enriched, "week_minutes", 10, { label: (v) => `${(v.value / 1000000).toFixed(1)}M min` }),
+        topMinutesPlayed: topN(enriched, "week_minutes", 10, { label: (v) => `${((v?.value ?? 0) / 1000000).toFixed(1)}M min` }),
         
         // Quality Filter: >= 1000 plays AND >= 500 unique players
         topAvgMinutesPerPlayer: topN(enriched, "week_minutes_per_player_avg", 10, { 
@@ -1908,10 +1926,10 @@ serve(async (req) => {
           label: fmtPct 
         }),
 
-        topStickinessD1: topN(enriched, "stickinessD1", 10, { label: (i) => Number(i.value).toLocaleString() }),
-        topStickinessD7: topN(enriched, "stickinessD7", 10, { label: (i) => Number(i.value).toLocaleString() }),
-        topStickinessD1_UGC: topN(ugcIslands.map((i: any) => ({ ...i, ...enriched.find((e: any) => e.island_code === i.island_code) })), "stickinessD1", 10),
-        topStickinessD7_UGC: topN(ugcIslands.map((i: any) => ({ ...i, ...enriched.find((e: any) => e.island_code === i.island_code) })), "stickinessD7", 10),
+        topStickinessD1: topN(enriched, "stickinessD1", 10, { label: (i) => Number(i?.value ?? 0).toLocaleString() }),
+        topStickinessD7: topN(enriched, "stickinessD7", 10, { label: (i) => Number(i?.value ?? 0).toLocaleString() }),
+        topStickinessD1_UGC: topN(ugcEnriched, "stickinessD1", 10),
+        topStickinessD7_UGC: topN(ugcEnriched, "stickinessD7", 10),
 
         topCreatorsByPlays: topN(creators, "totalPlays", 10, { label: fmtNum }),
         topCreatorsByPlayers: topN(creators, "uniquePlayers", 10, { label: fmtNum }),

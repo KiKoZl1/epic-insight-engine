@@ -188,9 +188,9 @@ export default function ReportView() {
       {/* Section 1 */}
       <SectionHeader icon={Activity} number={1} title={t("reportSections.s1Title")} description={t("reportSections.s1Desc")} />
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
-        <KpiCard icon={MapIcon} label={t("kpis.activeIslands")} value={fmt(kpis.activeIslands)} change={kpis.wowActiveIslands} />
+        <KpiCard icon={MapIcon} label={t("kpis.activeIslands")} value={fmt(kpis.totalIslands)} change={kpis.wowActiveIslands} />
         <KpiCard icon={Users} label={t("kpis.creators")} value={fmt(kpis.totalCreators)} />
-        <KpiCard icon={Sparkles} label={t("kpis.newMaps")} value={fmt(kpis.newMapsThisWeek)} />
+        <KpiCard icon={Sparkles} label={t("kpis.newMaps")} value={fmt(kpis.newMapsThisWeekPublished ?? kpis.newMapsThisWeek)} />
         <KpiCard icon={UserPlus} label={t("kpis.newCreators")} value={fmt(kpis.newCreatorsThisWeek)} />
       </div>
       <AiNarrative text={getNarrative(1)} />
