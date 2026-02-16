@@ -12,7 +12,7 @@ import {
   ArrowLeft, Activity, Users, Play, Clock, TrendingUp, TrendingDown, Star, ThumbsUp,
   BarChart3, Crown, Map as MapIcon, Layers, Zap, Target, Tags, Sparkles,
   AlertTriangle, Flame, UserPlus, HeartPulse, Skull, Rocket, Copy, EyeOff,
-  Magnet, Grid3X3, Anchor, RefreshCw, Baby, UsersRound, Wrench
+  Magnet, Grid3X3, Anchor, RefreshCw, Baby, UsersRound, Wrench, Crosshair
 } from "lucide-react";
 import { ReportPageSkeleton } from "@/components/discover/ReportSkeleton";
 import {
@@ -582,6 +582,53 @@ export default function ReportView() {
             ))}
           </div>
           <AiNarrative text={getNarrative(25)} />
+        </>
+      )}
+
+      <div className="border-t border-border my-8" />
+
+      {/* Section 26 (Exposure Efficiency) */}
+      {(rankings.topExposureEfficiency?.length > 0 || rankings.worstExposureEfficiency?.length > 0) && (
+        <>
+          <SectionHeader icon={Crosshair} number={26} title={t("reportSections.s26Title")} description={t("reportSections.s26Desc")} />
+          {rankings.exposureEfficiencyStats && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+              <KpiCard icon={Crosshair} label={t("rankings.islandsWithExposure")} value={fmt(rankings.exposureEfficiencyStats.total_islands_with_exposure)} />
+              <KpiCard icon={Zap} label={t("rankings.avgPlaysPerMin")} value={fmt(rankings.exposureEfficiencyStats.avg_plays_per_min)} />
+              <KpiCard icon={Target} label={t("rankings.medianPlaysPerMin")} value={fmt(rankings.exposureEfficiencyStats.median_plays_per_min)} />
+            </div>
+          )}
+          <div className="grid md:grid-cols-2 gap-4 mb-4">
+            <RankingTable
+              title={t("rankings.topExposureEfficiency")}
+              icon={Crosshair}
+              showBadges
+              showImage
+              items={(rankings.topExposureEfficiency || []).map((item: any) => ({
+                name: item.title || item.island_code,
+                code: item.island_code,
+                subtitle: `@${item.creator_code || "?"} · ${fmt(item.total_minutes_exposed)} min exposed · ${item.distinct_panels} panels`,
+                value: item.plays_per_min_exposed,
+                label: `${fmt(item.plays_per_min_exposed)} plays/min`,
+                imageUrl: item.image_url,
+              }))}
+            />
+            <RankingTable
+              title={t("rankings.worstExposureEfficiency")}
+              icon={AlertTriangle}
+              barColor="bg-destructive"
+              showImage
+              items={(rankings.worstExposureEfficiency || []).map((item: any) => ({
+                name: item.title || item.island_code,
+                code: item.island_code,
+                subtitle: `@${item.creator_code || "?"} · ${fmt(item.total_minutes_exposed)} min exposed · ${item.distinct_panels} panels`,
+                value: item.plays_per_min_exposed,
+                label: `${fmt(item.plays_per_min_exposed)} plays/min`,
+                imageUrl: item.image_url,
+              }))}
+            />
+          </div>
+          <AiNarrative text={getNarrative(26)} />
         </>
       )}
     </div>

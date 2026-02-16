@@ -119,7 +119,7 @@ serve(async (req) => {
       kpisRes, rankingsRes, creatorsRes, categoriesRes,
       distributionsRes, trendingRes, moversRes,
       newIslandsRes, updatedRes, newCountRes,
-      toolSplitRes, rookiesRes, exposureAnalysisRes,
+      toolSplitRes, rookiesRes, exposureAnalysisRes, exposureEfficiencyRes,
     ] = await Promise.all([
       supabase.rpc("report_finalize_kpis", { p_report_id: reportId, p_prev_report_id: prevReportId }),
       supabase.rpc("report_finalize_rankings", { p_report_id: reportId, p_limit: 10 }),
@@ -136,6 +136,7 @@ serve(async (req) => {
       supabase.rpc("report_finalize_tool_split", { p_report_id: reportId }),
       supabase.rpc("report_finalize_rookies", { p_report_id: reportId, p_limit: 10 }),
       supabase.rpc("report_finalize_exposure_analysis", { p_report_id: reportId, p_days: 7 }),
+      supabase.rpc("report_finalize_exposure_efficiency", { p_report_id: reportId, p_limit: 15 }),
     ]);
 
     // Log RPC errors
@@ -143,7 +144,7 @@ serve(async (req) => {
       ["kpis", kpisRes], ["rankings", rankingsRes], ["creators", creatorsRes],
       ["categories", categoriesRes], ["distributions", distributionsRes],
       ["trending", trendingRes], ["movers", moversRes],
-      ["toolSplit", toolSplitRes], ["rookies", rookiesRes], ["exposureAnalysis", exposureAnalysisRes],
+      ["toolSplit", toolSplitRes], ["rookies", rookiesRes], ["exposureAnalysis", exposureAnalysisRes], ["exposureEfficiency", exposureEfficiencyRes],
     ] as const) {
       if ((res as any).error) console.error(`[rebuild] RPC ${name} error:`, (res as any).error.message);
     }
@@ -191,6 +192,7 @@ serve(async (req) => {
       ...(toolSplitRes.data || {}),
       ...(rookiesRes.data || {}),
       ...(exposureAnalysisRes.data || {}),
+      ...(exposureEfficiencyRes.data || {}),
       topNewIslandsByPlays: topNewItems,
       topNewIslandsByPlaysPublished: topNewItems,
       topNewIslandsByCCU: [...topNewItems].sort((a, b) => (b.value || 0) - (a.value || 0)).slice(0, 10),

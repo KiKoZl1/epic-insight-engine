@@ -1812,6 +1812,10 @@ export type Database = {
         Args: { p_days?: number; p_report_id: string }
         Returns: Json
       }
+      report_finalize_exposure_efficiency: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
       report_finalize_kpis: {
         Args: { p_prev_report_id?: string; p_report_id: string }
         Returns: Json

@@ -174,7 +174,9 @@
     "s24Title": "Player Capacity Analysis",
     "s24Desc": "Performance breakdown by max player count tiers",
     "s25Title": "UEFN vs Fortnite Creative",
-    "s25Desc": "Tool comparison: which development environment produces better results"
+    "s25Desc": "Tool comparison: which development environment produces better results",
+    "s26Title": "Exposure Efficiency",
+    "s26Desc": "Which islands convert Discovery panel exposure into actual plays best"
   },
   "kpis": {
     "activeIslands": "Active Islands",
@@ -254,7 +256,12 @@
     "panelLoyalty": "Panel Residents (Top 10)",
     "rookieCreators": "Rookie Creators (Top 10)",
     "capacityAnalysis": "Performance by Capacity Tier",
-    "toolSplit": "UEFN vs FNC Comparison"
+    "toolSplit": "UEFN vs FNC Comparison",
+    "topExposureEfficiency": "Best Converters (Plays / Min Exposed)",
+    "worstExposureEfficiency": "Lowest Converters (Plays / Min Exposed)",
+    "islandsWithExposure": "Islands with Exposure Data",
+    "avgPlaysPerMin": "Avg Plays/Min Exposed",
+    "medianPlaysPerMin": "Median Plays/Min"
   },
   "discover": {
     "title": "Discovery Live",
