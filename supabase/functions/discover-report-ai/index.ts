@@ -204,13 +204,30 @@ Sections:
       narratives = JSON.parse(toolCall.function.arguments);
     }
 
-    // ── Step 2: Auto-translate narratives to supported locales ──
+    // ── Step 2: Auto-translate narratives to supported locales (parallel batches) ──
     for (const locale of SUPPORTED_LOCALES) {
       try {
-        const translated = await translateNarratives(narratives, locale, LOVABLE_API_KEY);
-        // Merge translated text into each section as narrative_<locale_key>
-        const localeKey = locale.replace("-", "_"); // pt-BR → pt_BR
-        for (const [sectionKey, section] of Object.entries(translated)) {
+        const localeKey = locale.replace("-", "_");
+        const sectionKeys = Object.keys(narratives).filter(k => narratives[k]?.narrative);
+        
+        // Split into 2 parallel batches to avoid timeout
+        const mid = Math.ceil(sectionKeys.length / 2);
+        const batch1Keys = sectionKeys.slice(0, mid);
+        const batch2Keys = sectionKeys.slice(mid);
+        
+        const buildBatch = (keys: string[]) => {
+          const subset: Record<string, { title: string; narrative: string }> = {};
+          for (const k of keys) subset[k] = { title: narratives[k].title, narrative: narratives[k].narrative };
+          return subset;
+        };
+
+        const [res1, res2] = await Promise.all([
+          translateNarrativesBatch(buildBatch(batch1Keys), locale, LOVABLE_API_KEY),
+          translateNarrativesBatch(buildBatch(batch2Keys), locale, LOVABLE_API_KEY),
+        ]);
+
+        const merged = { ...res1, ...res2 };
+        for (const [sectionKey, section] of Object.entries(merged)) {
           if (narratives[sectionKey] && (section as any)?.narrative) {
             narratives[sectionKey][`narrative_${localeKey}`] = (section as any).narrative;
           }
@@ -218,9 +235,9 @@ Sections:
             narratives[sectionKey][`title_${localeKey}`] = (section as any).title;
           }
         }
+        console.log(`Translation to ${locale} OK: ${Object.keys(merged).length} sections`);
       } catch (e) {
         console.error(`Translation to ${locale} failed (non-blocking):`, e);
-        // Non-blocking: English will be used as fallback
       }
     }
 
@@ -246,19 +263,13 @@ Sections:
   }
 });
 
-// ── Translation helper ──
-async function translateNarratives(
-  narratives: Record<string, { title: string; narrative: string }>,
+// ── Translation helper (single batch) ──
+async function translateNarrativesBatch(
+  toTranslate: Record<string, { title: string; narrative: string }>,
   targetLocale: string,
   apiKey: string,
 ): Promise<Record<string, { title: string; narrative: string }>> {
-  // Build a compact payload: { section1: { title, narrative }, ... }
-  const toTranslate: Record<string, { title: string; narrative: string }> = {};
-  for (const [key, val] of Object.entries(narratives)) {
-    if (val?.narrative) {
-      toTranslate[key] = { title: val.title, narrative: val.narrative };
-    }
-  }
+  if (Object.keys(toTranslate).length === 0) return {};
 
   const localeLabel = targetLocale === "pt-BR" ? "Brazilian Portuguese (pt-BR)" : targetLocale;
 
