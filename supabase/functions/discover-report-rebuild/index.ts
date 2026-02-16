@@ -135,8 +135,8 @@ serve(async (req) => {
       supabase.rpc("report_new_islands_by_launch_count", { p_report_id: reportId, p_week_start: weekStartDate, p_week_end: weekEndDate }),
       supabase.rpc("report_finalize_tool_split", { p_report_id: reportId }),
       supabase.rpc("report_finalize_rookies", { p_report_id: reportId, p_limit: 10 }),
-      supabase.rpc("report_finalize_exposure_analysis", { p_report_id: reportId, p_days: 7 }),
-      supabase.rpc("report_finalize_exposure_efficiency", { p_report_id: reportId, p_limit: 15 }),
+      supabase.rpc("report_finalize_exposure_analysis", { p_report_id: reportId!, p_days: 7 }),
+      supabase.rpc("report_finalize_exposure_efficiency", { p_report_id: reportId!, p_limit: 15 }),
     ]);
 
     // Log RPC errors
