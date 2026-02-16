@@ -339,8 +339,6 @@ serve(async (req) => {
 
     const supabase = createClient(mustEnv("SUPABASE_URL"), serviceKey);
 
-    const mode = String(body.mode || "orchestrate") as Mode;
-
     if (mode === "config_status") {
       const cfgOk = hasEnv("EPIC_OAUTH_CLIENT_ID") &&
         hasEnv("EPIC_OAUTH_CLIENT_SECRET") &&
