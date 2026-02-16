@@ -440,20 +440,60 @@ export default function ReportView() {
       {rankings.multiPanelPresence?.length > 0 && (
         <>
           <SectionHeader icon={Grid3X3} number={20} title={t("reportSections.s20Title")} description={t("reportSections.s20Desc")} />
-          <RankingTable
-            title={t("rankings.multiPanelPresence")}
-            icon={Grid3X3}
-            showImage
-            showBadges
-            items={(rankings.multiPanelPresence || []).map((item: any) => ({
-              name: item.title || item.link_code,
-              code: item.link_code,
-              subtitle: `@${item.creator_code || "unknown"} · ${item.panels_distinct} panels`,
-              value: item.panels_distinct,
-              label: `${item.panels_distinct} panels`,
-              imageUrl: item.image_url,
-            }))}
-          />
+          <Card className="backdrop-blur-sm bg-card/80 border-border/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Grid3X3 className="h-4 w-4 text-primary" />
+                {t("rankings.multiPanelPresence")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(rankings.multiPanelPresence || []).slice(0, 10).map((item: any, idx: number) => {
+                const badge = idx < 3 ? ["🥇","🥈","🥉"][idx] : null;
+                const badgeBg = idx < 3 ? [
+                  "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30",
+                  "bg-gray-400/15 text-gray-500 dark:text-gray-300 border-gray-400/30",
+                  "bg-amber-600/15 text-amber-700 dark:text-amber-400 border-amber-600/30",
+                ][idx] : "";
+                const breakdown = item.panel_breakdown || [];
+                const totalMinutes = breakdown.reduce((s: number, p: any) => s + (p.minutes || 0), 0);
+                return (
+                  <details key={idx} className="group">
+                    <summary className="flex items-center gap-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                      {badge ? (
+                        <span className={`flex items-center justify-center h-6 w-6 rounded-full border text-xs font-bold shrink-0 ${badgeBg}`}>{badge}</span>
+                      ) : (
+                        <span className="text-xs font-mono text-muted-foreground w-6 text-center shrink-0">{idx + 1}</span>
+                      )}
+                      {item.image_url && (
+                        <img src={item.image_url} alt="" className="h-8 w-8 rounded object-cover shrink-0 border border-border/30" loading="lazy"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-medium truncate block">{item.title || item.link_code}</span>
+                        <span className="text-[10px] text-muted-foreground truncate block">
+                          @{item.creator_code || "unknown"} · {item.panels_distinct} panels · {fmt(totalMinutes)} min total
+                        </span>
+                      </div>
+                      <span className="text-xs font-display font-semibold whitespace-nowrap">{item.panels_distinct} panels</span>
+                      <span className="text-muted-foreground text-xs group-open:rotate-90 transition-transform">▶</span>
+                    </summary>
+                    <div className="mt-2 ml-9 space-y-1">
+                      {breakdown.map((p: any, pi: number) => (
+                        <div key={pi} className="flex items-center gap-2 text-[11px]">
+                          <span className="w-4 text-center text-muted-foreground font-mono">{pi + 1}</span>
+                          <span className="flex-1 truncate font-medium">{p.panel}</span>
+                          <span className="text-muted-foreground">{fmt(p.minutes)} min</span>
+                          <span className="text-muted-foreground">{p.appearances} app</span>
+                          {p.best_rank && <span className="text-primary text-[10px]">#{p.best_rank}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })}
+            </CardContent>
+          </Card>
           <AiNarrative text={getNarrative(20)} />
           <div className="border-t border-border my-8" />
         </>
