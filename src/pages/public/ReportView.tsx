@@ -1,17 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/discover/KpiCard";
 import { RankingTable } from "@/components/discover/RankingTable";
 import { SectionHeader } from "@/components/discover/SectionHeader";
 import { AiNarrative } from "@/components/discover/AiNarrative";
+import { DistributionChart } from "@/components/discover/DistributionChart";
 import {
   ArrowLeft, Activity, Users, Play, Clock, TrendingUp, TrendingDown, Star, ThumbsUp,
-  BarChart3, Crown, Map as MapIcon, Layers, Zap, Target, PieChart, Tags, Sparkles,
-  AlertTriangle, Flame, UserPlus, HeartPulse, Skull, Rocket, Share2, Copy, EyeOff,
+  BarChart3, Crown, Map as MapIcon, Layers, Zap, Target, Tags, Sparkles,
+  AlertTriangle, Flame, UserPlus, HeartPulse, Skull, Rocket, Copy, EyeOff,
+  Magnet, Grid3X3, Anchor, RefreshCw, Baby, UsersRound, Wrench, Crosshair
 } from "lucide-react";
 import { ReportPageSkeleton } from "@/components/discover/ReportSkeleton";
 import {
@@ -40,6 +42,11 @@ const PIE_COLORS = [
   "hsl(7, 100%, 58%)", "hsl(200, 80%, 50%)", "hsl(120, 60%, 45%)",
   "hsl(340, 75%, 55%)",
 ];
+
+const EPIC_CREATORS = new Set(["epic", "epic labs", "epic games", "fortnite"]);
+function isEpicCreator(creator: string | null | undefined): boolean {
+  return EPIC_CREATORS.has((creator || "").toLowerCase().trim());
+}
 
 function hashHue(s: string): number {
   let h = 0;
@@ -78,12 +85,29 @@ interface WeeklyReport {
   cover_image_url?: string | null;
 }
 
+// Lightbox for thumbnails
+function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      <button onClick={onClose} className="absolute top-4 right-4 text-white/80 hover:text-white"><X className="h-6 w-6" /></button>
+      <img src={src} alt="" className="max-w-[90vw] max-h-[85vh] rounded-lg shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
+    </div>
+  );
+}
+
 export default function ReportView() {
   const { slug } = useParams<{ slug: string }>();
   const { t, i18n } = useTranslation();
   const locale = i18n.language === "pt-BR" ? "pt-BR" : "en-US";
   const [report, setReport] = useState<WeeklyReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const openLightbox = useCallback((src: string) => setLightboxSrc(src), []);
   const { toast } = useToast();
 
   const fmtDateTime = (iso: string): string => {
@@ -124,15 +148,13 @@ export default function ReportView() {
 
   const getNarrative = (sectionNum: number): string | null => {
     const sectionKey = `section${sectionNum}`;
-    // Editor override always takes priority
     const edited = editorSections[sectionKey];
     if (edited) return edited;
 
     const ai = aiSections[sectionKey];
     if (!ai) return null;
 
-    // Pick locale-specific narrative if available (e.g. narrative_pt_BR)
-    const localeKey = i18n.language.replace("-", "_"); // "pt-BR" → "pt_BR"
+    const localeKey = i18n.language.replace("-", "_");
     if (localeKey !== "en" && ai[`narrative_${localeKey}`]) {
       return ai[`narrative_${localeKey}`];
     }
@@ -153,6 +175,7 @@ export default function ReportView() {
 
   return (
     <div className="px-6 py-8 max-w-6xl mx-auto pb-20">
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
       {(report as any).cover_image_url && (
         <div className="rounded-xl overflow-hidden mb-6 max-h-64">
           <img src={(report as any).cover_image_url} alt="Report cover" className="w-full h-64 object-cover" />
@@ -189,12 +212,10 @@ export default function ReportView() {
       {/* Section 1 */}
       <SectionHeader icon={Activity} number={1} title={t("reportSections.s1Title")} description={t("reportSections.s1Desc")} />
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
-        <KpiCard icon={MapIcon} label={t("kpis.activeIslands")} value={fmt(kpis.activeIslands)} change={kpis.wowActiveIslands} />
+        <KpiCard icon={MapIcon} label={t("kpis.activeIslands")} value={fmt(kpis.totalIslands)} change={kpis.wowActiveIslands} />
         <KpiCard icon={Users} label={t("kpis.creators")} value={fmt(kpis.totalCreators)} />
-        <KpiCard icon={Sparkles} label={t("kpis.newMaps")} value={fmt(kpis.newMapsThisWeek)} />
+        <KpiCard icon={Sparkles} label={t("kpis.newMaps")} value={fmt(kpis.newMapsThisWeekPublished ?? kpis.newMapsThisWeek)} />
         <KpiCard icon={UserPlus} label={t("kpis.newCreators")} value={fmt(kpis.newCreatorsThisWeek)} />
-        <KpiCard icon={HeartPulse} label={t("kpis.revived")} value={fmt(kpis.revivedCount)} />
-        <KpiCard icon={Skull} label={t("kpis.dead")} value={fmt(kpis.deadCount)} />
       </div>
       <AiNarrative text={getNarrative(1)} />
 
@@ -220,84 +241,150 @@ export default function ReportView() {
         <KpiCard icon={BarChart3} label={t("kpis.avgCCU")} value={fmt(kpis.avgCCUPerMap)} />
         <KpiCard icon={Clock} label={t("kpis.avgDuration")} value={fmt(kpis.avgPlayDuration)} suffix=" min" />
       </div>
-      <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topPeakCCU")} icon={BarChart3} items={rankings.topPeakCCU || []} />
-        <RankingTable title={t("rankings.topUniquePlayers")} icon={Users} items={rankings.topUniquePlayers || []} />
-      </div>
       <AiNarrative text={getNarrative(3)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 4 */}
-      <SectionHeader icon={Sparkles} number={4} title={t("reportSections.s4Title")} description={t("reportSections.s4Desc")} />
+      {/* Section 4 (Peak CCU) */}
+      <SectionHeader icon={BarChart3} number={4} title={t("reportSections.s4Title")} description={t("reportSections.s4Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topNewByPlays")} icon={Play} items={rankings.topNewIslandsByPlaysPublished || rankings.topNewIslandsByPlays || []} />
-        <RankingTable title={t("rankings.topNewByPlayers")} icon={Users} items={rankings.topNewIslandsByPlayersPublished || rankings.topNewIslandsByPlayers || []} />
+        <RankingTable title={t("rankings.topPeakCCU")} icon={BarChart3} showImage showBadges onImageClick={openLightbox} items={(rankings.topPeakCCU || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topPeakCCU_UGC")} icon={BarChart3} showImage showBadges onImageClick={openLightbox} items={(rankings.topPeakCCU_UGC || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
       </div>
-      {rankings.mostUpdatedIslandsThisWeek?.length > 0 && (
-        <div className="grid md:grid-cols-2 gap-4 mb-4">
-          <RankingTable title={t("rankings.mostUpdated")} icon={Zap} items={rankings.mostUpdatedIslandsThisWeek || []} />
-        </div>
-      )}
       <AiNarrative text={getNarrative(4)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 5 */}
-      <SectionHeader icon={TrendingUp} number={5} title={t("reportSections.s5Title")} description={t("reportSections.s5Desc")} />
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-        <KpiCard icon={TrendingUp} label={t("kpis.avgD1")} value={pct(kpis.avgRetentionD1)} />
-        <KpiCard icon={TrendingUp} label={t("kpis.avgD7")} value={pct(kpis.avgRetentionD7)} />
-        <KpiCard icon={Star} label={t("kpis.favToPlay")} value={pct(kpis.favToPlayRatio)} />
-        <KpiCard icon={ThumbsUp} label={t("kpis.recToPlay")} value={pct(kpis.recToPlayRatio)} />
-      </div>
+      {/* Section 5 (New Islands) */}
+      <SectionHeader icon={Sparkles} number={5} title={t("reportSections.s5Title")} description={t("reportSections.s5Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topD1")} icon={TrendingUp} items={rankings.topRetentionD1 || []} valueFormatter={(v) => pct(Number(v))} />
-        <RankingTable title={t("rankings.topD7")} icon={TrendingUp} items={rankings.topRetentionD7 || []} valueFormatter={(v) => pct(Number(v))} />
+        <RankingTable title={t("rankings.topNewByPlays")} icon={Play} showImage showBadges onImageClick={openLightbox} items={(rankings.topNewIslandsByPlaysPublished || rankings.topNewIslandsByPlays || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topNewByCCU")} icon={BarChart3} showImage onImageClick={openLightbox} items={(rankings.topNewIslandsByCCU || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
       </div>
       <AiNarrative text={getNarrative(5)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 6 */}
-      <SectionHeader icon={Crown} number={6} title={t("reportSections.s6Title")} description={t("reportSections.s6Desc")} />
-      <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topCreatorsByPlays")} icon={Play} items={rankings.topCreatorsByPlays || []} />
-        <RankingTable title={t("rankings.topCreatorsByMinutes")} icon={Clock} items={rankings.topCreatorsByMinutes || []} />
+      {/* Section 6 (Retention & Loyalty) */}
+      <SectionHeader icon={TrendingUp} number={6} title={t("reportSections.s6Title")} description={t("reportSections.s6Desc")} />
+      <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 mb-4">
+        <KpiCard icon={TrendingUp} label={t("kpis.avgD1")} value={pct(kpis.avgRetentionD1)} />
+        <KpiCard icon={TrendingUp} label={t("kpis.avgD7")} value={pct(kpis.avgRetentionD7)} />
       </div>
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <RankingTable title={t("rankings.topD1")} icon={TrendingUp} showImage onImageClick={openLightbox} items={(rankings.topRetentionD1 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => pct(Number(v))} />
+        <RankingTable title={t("rankings.topD7")} icon={TrendingUp} showImage onImageClick={openLightbox} items={(rankings.topRetentionD7 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => pct(Number(v))} />
+      </div>
+      {rankings.retentionDistributionD1 && (
+        <div className="grid md:grid-cols-2 gap-4 mb-4">
+          <DistributionChart title={t("rankings.retentionDistribution") + " (D1)"} data={rankings.retentionDistributionD1} />
+          <DistributionChart title={t("rankings.retentionDistribution") + " (D7)"} data={rankings.retentionDistributionD7} />
+        </div>
+      )}
       <AiNarrative text={getNarrative(6)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 7 */}
-      <SectionHeader icon={MapIcon} number={7} title={t("reportSections.s7Title")} description={t("reportSections.s7Desc")} />
+      {/* Section 7 (Creator Performance) */}
+      <SectionHeader icon={Crown} number={7} title={t("reportSections.s7Title")} description={t("reportSections.s7Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topAvgMinutes")} icon={Clock} items={rankings.topAvgMinutesPerPlayer || []} valueFormatter={(v) => Number(v).toFixed(1) + " min"} />
-        <RankingTable title={t("rankings.topFavorites")} icon={Star} items={rankings.topFavorites || []} />
+        <RankingTable title={t("rankings.topCreatorsByPlays") + " (UGC)"} icon={Play} showBadges
+          items={(rankings.topCreatorsByPlays || []).filter((i: any) => !isEpicCreator(i.name))} />
+        <RankingTable title={t("rankings.topCreatorsByMinutes") + " (UGC)"} icon={Clock} showBadges
+          items={(rankings.topCreatorsByMinutes || []).filter((i: any) => !isEpicCreator(i.name))} />
+      </div>
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <RankingTable title={t("rankings.topCreatorsByPlayers") + " (UGC)"} icon={Users} showBadges
+          items={(rankings.topCreatorsByPlayers || []).filter((i: any) => !isEpicCreator(i.name))} />
+        <RankingTable title={t("rankings.topCreatorsByCCU") + " (UGC)"} icon={BarChart3} showBadges
+          items={(rankings.topCreatorsByCCU || []).filter((i: any) => !isEpicCreator(i.name))} />
       </div>
       <AiNarrative text={getNarrative(7)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 8 */}
-      <SectionHeader icon={AlertTriangle} number={8} title={t("reportSections.s8Title")} description={t("reportSections.s8Desc")} />
-      <KpiCard icon={AlertTriangle} label={t("kpis.lowPerf")} value={fmt(kpis.failedIslands)} />
+      {/* Section 8 (Map Quality) */}
+      <SectionHeader icon={MapIcon} number={8} title={t("reportSections.s8Title")} description={t("reportSections.s8Desc")} />
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <RankingTable title={t("rankings.topAvgMinutes")} icon={Clock} showImage onImageClick={openLightbox} items={(rankings.topAvgMinutesPerPlayer || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1) + " min"} />
+        <RankingTable title={t("rankings.topMinutesPlayed")} icon={Clock} showImage onImageClick={openLightbox} items={(rankings.topMinutesPlayed || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+      </div>
       <AiNarrative text={getNarrative(8)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 9 */}
-      <SectionHeader icon={Target} number={9} title={t("reportSections.s9Title")} description={t("reportSections.s9Desc")} />
-      <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.playsPerPlayer")} icon={Zap} items={rankings.topPlaysPerPlayer || []} valueFormatter={(v) => Number(v).toFixed(2)} />
-        <RankingTable title={t("rankings.favsPer100")} icon={Star} items={rankings.topFavsPer100 || []} valueFormatter={(v) => Number(v).toFixed(2)} />
+      {/* Section 9 (Low Performance) */}
+      <SectionHeader icon={AlertTriangle} number={9} title={t("reportSections.s9Title")} description={t("reportSections.s9Desc")} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <KpiCard icon={AlertTriangle} label={t("kpis.lowPerf")} value={fmt(kpis.failedIslands)} />
+          {rankings.lowPerfHistogram && (
+            <div className="mt-4">
+              <DistributionChart title={t("rankings.lowPerfHistogram")} data={rankings.lowPerfHistogram} barColor="#ef4444" />
+            </div>
+          )}
+        </div>
+        <RankingTable title={t("rankings.lowEngagement")} icon={AlertTriangle} showImage onImageClick={openLightbox} items={(rankings.failedIslandsList || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-destructive" />
       </div>
       <AiNarrative text={getNarrative(9)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 10 */}
-      <SectionHeader icon={Layers} number={10} title={t("reportSections.s10Title")} description={t("reportSections.s10Desc")} />
+      {/* Section 10 (Plays per Player) */}
+      <SectionHeader icon={Zap} number={10} title={t("reportSections.s10Title")} description={t("reportSections.s10Desc")} />
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <RankingTable title={t("rankings.playsPerPlayer")} icon={Zap} showImage onImageClick={openLightbox} items={(rankings.topPlaysPerPlayer || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2)} />
+      </div>
+      <AiNarrative text={getNarrative(10)} />
+
+      <div className="border-t border-border my-8" />
+
+      {/* Section 11 (Advocacy) */}
+      <SectionHeader icon={Target} number={11} title={t("reportSections.s11Title")} description={t("reportSections.s11Desc")} />
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <RankingTable title={t("rankings.favsPer100")} icon={Star} showImage onImageClick={openLightbox} items={(rankings.topFavsPer100 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2) + "%"} />
+        <RankingTable title={t("rankings.recsPer100")} icon={ThumbsUp} showImage onImageClick={openLightbox} items={(rankings.topRecPer100 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2) + "%"} />
+      </div>
+      <AiNarrative text={getNarrative(11)} />
+
+      <div className="border-t border-border my-8" />
+
+      {/* Section 12 (Efficiency) */}
+      <SectionHeader icon={Zap} number={12} title={t("reportSections.s12Title")} description={t("reportSections.s12Desc")} />
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <RankingTable title={t("rankings.topFavsPerPlay")} icon={Star} showImage onImageClick={openLightbox} items={(rankings.topFavsPerPlay || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(4)} />
+        <RankingTable title={t("rankings.topRecsPerPlay")} icon={ThumbsUp} showImage onImageClick={openLightbox} items={(rankings.topRecsPerPlay || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(4)} />
+      </div>
+      <AiNarrative text={getNarrative(12)} />
+
+      <div className="border-t border-border my-8" />
+
+      {/* Section 13 (Stickiness) */}
+      <SectionHeader icon={Magnet} number={13} title={t("reportSections.s13Title")} description={t("reportSections.s13Desc")} />
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <RankingTable title={t("rankings.topStickinessD1")} icon={Magnet} showImage onImageClick={openLightbox} items={(rankings.topStickinessD1 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topStickinessD7")} icon={Magnet} showImage onImageClick={openLightbox} items={(rankings.topStickinessD7 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+      </div>
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <RankingTable title={t("rankings.topStickinessD1_UGC")} icon={Magnet} showImage onImageClick={openLightbox} items={(rankings.topStickinessD1_UGC || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topStickinessD7_UGC")} icon={Magnet} showImage onImageClick={openLightbox} items={(rankings.topStickinessD7_UGC || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+      </div>
+      <AiNarrative text={getNarrative(13)} />
+
+      <div className="border-t border-border my-8" />
+
+      {/* Section 14 (Retention Adj Engagement) */}
+      <SectionHeader icon={Target} number={14} title={t("reportSections.s14Title")} description={t("reportSections.s14Desc")} />
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <RankingTable title={t("rankings.topRetentionAdjD1")} icon={Target} showImage onImageClick={openLightbox} items={(rankings.topRetentionAdjD1 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1)} />
+        <RankingTable title={t("rankings.topRetentionAdjD7")} icon={Target} showImage onImageClick={openLightbox} items={(rankings.topRetentionAdjD7 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1)} />
+      </div>
+      <AiNarrative text={getNarrative(14)} />
+
+      <div className="border-t border-border my-8" />
+
+      {/* Section 15 (Category) */}
+      <SectionHeader icon={Layers} number={15} title={t("reportSections.s10Title")} description={t("reportSections.s10Desc")} />
       {categoryData.length > 0 && (
         <div className="mb-4">
           <ResponsiveContainer width="100%" height={300}>
@@ -318,50 +405,330 @@ export default function ReportView() {
         <RankingTable title={t("rankings.topCategories")} icon={Tags} items={rankings.topCategoriesByPlays || []} />
         <RankingTable title={t("rankings.topTags")} icon={Tags} items={rankings.topTags || []} />
       </div>
-      <AiNarrative text={getNarrative(10)} />
+      <AiNarrative text={getNarrative(15)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 11 */}
-      <SectionHeader icon={Zap} number={11} title={t("reportSections.s11Title")} description={t("reportSections.s11Desc")} />
+      {/* Section 16 (Growth/Breakouts) */}
+      <SectionHeader icon={Rocket} number={16} title={t("reportSections.s16Title")} description={t("reportSections.s16Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topFavsPerPlay")} icon={Star} items={rankings.topFavsPerPlay || []} valueFormatter={(v) => Number(v).toFixed(4)} />
-        <RankingTable title={t("rankings.topRecsPerPlay")} icon={ThumbsUp} items={rankings.topRecsPerPlay || []} valueFormatter={(v) => Number(v).toFixed(4)} />
+        <RankingTable title={t("rankings.topWeeklyGrowth")} icon={Rocket} showImage onImageClick={openLightbox} items={(rankings.topWeeklyGrowth || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-success" />
       </div>
-      <AiNarrative text={getNarrative(11)} />
+      <AiNarrative text={getNarrative(16)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 12 */}
-      <SectionHeader icon={Rocket} number={12} title={t("reportSections.s12Title")} description={t("reportSections.s12Desc")} />
+      {/* Section 17 (Risers) */}
+      <SectionHeader icon={TrendingUp} number={17} title={t("reportSections.s12Title")} description={t("reportSections.s12Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topRisers")} icon={TrendingUp} items={rankings.topRisers || []} barColor="bg-success" />
-        <RankingTable title={t("rankings.topDecliners")} icon={TrendingDown} items={rankings.topDecliners || []} barColor="bg-destructive" />
+        <RankingTable title={t("rankings.topRisers")} icon={TrendingUp} showImage onImageClick={openLightbox} items={(rankings.topRisers || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-success" />
+        <RankingTable title={t("rankings.topDecliners")} icon={TrendingDown} showImage onImageClick={openLightbox} items={(rankings.topDecliners || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-destructive" />
       </div>
-      <AiNarrative text={getNarrative(12)} />
+      <AiNarrative text={getNarrative(17)} />
 
       <div className="border-t border-border my-8" />
 
-      {/* Section 13 */}
-      <SectionHeader icon={HeartPulse} number={13} title={t("reportSections.s13Title")} description={t("reportSections.s13Desc")} />
+      {/* Section 18 (Lifecycle) */}
+      <SectionHeader icon={HeartPulse} number={18} title={t("reportSections.s13Title")} description={t("reportSections.s13Desc")} />
       <div className="grid grid-cols-2 gap-3 mb-4">
         <KpiCard icon={HeartPulse} label={t("kpis.revived")} value={fmt(kpis.revivedCount)} />
         <KpiCard icon={Skull} label={t("kpis.dead")} value={fmt(kpis.deadCount)} />
       </div>
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.revivedIslands")} icon={HeartPulse} items={rankings.revivedIslands || []} barColor="bg-success" />
-        <RankingTable title={t("rankings.deadIslands")} icon={Skull} items={rankings.deadIslands || []} barColor="bg-destructive" />
+        <RankingTable title={t("rankings.revivedIslands")} icon={HeartPulse} showImage onImageClick={openLightbox} items={(rankings.revivedIslands || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-success" />
+        <RankingTable title={t("rankings.deadIslands")} icon={Skull} showImage onImageClick={openLightbox} items={(rankings.deadIslands || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-destructive" />
       </div>
-      <AiNarrative text={getNarrative(13)} />
+      <AiNarrative text={getNarrative(18)} />
 
+      <div className="border-t border-border my-8" />
+
+      {/* Section 19 (Exposure) */}
       {exposure?.profiles?.length > 0 && (
         <>
-          <div className="border-t border-border my-8" />
           <TooltipProvider>
-            <SectionHeader icon={EyeOff} number={14} title={t("reportSections.s14Title")} description={t("reportSections.s14Desc")} />
+            <SectionHeader icon={EyeOff} number={19} title={t("reportSections.s19Title")} description={t("reportSections.s19Desc")} />
             <DiscoveryExposureSection exposure={exposure} weeklyReportId={report.id} t={t} locale={locale} fmtDateTime={fmtDateTime} />
-            <AiNarrative text={getNarrative(14)} />
+            <AiNarrative text={getNarrative(19)} />
           </TooltipProvider>
+        </>
+      )}
+
+      <div className="border-t border-border my-8" />
+
+      {/* Section 20 (Multi-Panel Presence) */}
+      {rankings.multiPanelPresence?.length > 0 && (
+        <>
+          <SectionHeader icon={Grid3X3} number={20} title={t("reportSections.s20Title")} description={t("reportSections.s20Desc")} />
+          <Card className="backdrop-blur-sm bg-card/80 border-border/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Grid3X3 className="h-4 w-4 text-primary" />
+                {t("rankings.multiPanelPresence")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(rankings.multiPanelPresence || []).slice(0, 10).map((item: any, idx: number) => {
+                const badge = idx < 3 ? ["🥇","🥈","🥉"][idx] : null;
+                const badgeBg = idx < 3 ? [
+                  "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30",
+                  "bg-gray-400/15 text-gray-500 dark:text-gray-300 border-gray-400/30",
+                  "bg-amber-600/15 text-amber-700 dark:text-amber-400 border-amber-600/30",
+                ][idx] : "";
+                const breakdown = item.panel_breakdown || [];
+                const totalMinutes = breakdown.reduce((s: number, p: any) => s + (p.minutes || 0), 0);
+                return (
+                  <details key={idx} className="group">
+                    <summary className="flex items-center gap-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                      {badge ? (
+                        <span className={`flex items-center justify-center h-6 w-6 rounded-full border text-xs font-bold shrink-0 ${badgeBg}`}>{badge}</span>
+                      ) : (
+                        <span className="text-xs font-mono text-muted-foreground w-6 text-center shrink-0">{idx + 1}</span>
+                      )}
+                      {item.image_url && (
+                        <img src={item.image_url} alt="" className="h-8 w-8 rounded object-cover shrink-0 border border-border/30 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all" loading="lazy"
+                          onClick={(e) => { e.preventDefault(); openLightbox(item.image_url); }}
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-medium truncate block">{item.title || item.link_code}</span>
+                        <span className="text-[10px] text-muted-foreground truncate block">
+                          @{item.creator_code || "unknown"} · {item.panels_distinct} panels · {fmt(totalMinutes)} min total
+                        </span>
+                      </div>
+                      <span className="text-xs font-display font-semibold whitespace-nowrap">{item.panels_distinct} panels</span>
+                      <span className="text-muted-foreground text-xs group-open:rotate-90 transition-transform">▶</span>
+                    </summary>
+                    <div className="mt-2 ml-9 space-y-1">
+                      {breakdown.map((p: any, pi: number) => (
+                        <div key={pi} className="flex items-center gap-2 text-[11px]">
+                          <span className="w-4 text-center text-muted-foreground font-mono">{pi + 1}</span>
+                          <span className="flex-1 truncate font-medium">{p.panel}</span>
+                          <span className="text-muted-foreground">{fmt(p.minutes)} min</span>
+                          <span className="text-muted-foreground">{p.appearances} appearances</span>
+                          {p.best_rank && <span className="text-primary text-[10px]">#{p.best_rank}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })}
+            </CardContent>
+          </Card>
+          <AiNarrative text={getNarrative(20)} />
+          <div className="border-t border-border my-8" />
+        </>
+      )}
+
+      {/* Section 21 (Panel Loyalty) */}
+      {rankings.panelLoyalty?.length > 0 && (
+        <>
+          <SectionHeader icon={Anchor} number={21} title={t("reportSections.s21Title")} description={t("reportSections.s21Desc")} />
+          <RankingTable
+            title={t("rankings.panelLoyalty")}
+            icon={Anchor}
+            showImage
+            showBadges
+            onImageClick={openLightbox}
+            items={(rankings.panelLoyalty || []).map((item: any) => ({
+              name: item.title || item.link_code,
+              code: item.link_code,
+              subtitle: `@${item.creator_code || "unknown"} · ${item.panel_display || item.panel_name}`,
+              value: item.total_minutes_in_panel,
+              label: `${fmt(item.total_minutes_in_panel)} min`,
+              imageUrl: item.image_url,
+            }))}
+          />
+          <AiNarrative text={getNarrative(21)} />
+          <div className="border-t border-border my-8" />
+        </>
+      )}
+
+      {/* Section 22 (Most Updated Islands) */}
+      {(rankings.mostUpdatedIslandsThisWeek?.length > 0 || rankings.versionEnrichment) && (() => {
+        const allUpdated = (rankings.mostUpdatedIslandsThisWeek || []).map((item: any) => ({
+          name: item.name || item.title || item.code || item.island_code,
+          code: item.code || item.island_code,
+          subtitle: `${item.version ? `v${item.version} · ` : ""}@${item.creator || item.creator_code || "unknown"}`,
+          value: item.value || item.week_plays || 0,
+          imageUrl: item.imageUrl || item.image_url,
+          _creator: item.creator || item.creator_code || "",
+        }));
+        const epicUpdated = allUpdated.filter((i: any) => isEpicCreator(i._creator));
+        const ugcUpdated = allUpdated.filter((i: any) => !isEpicCreator(i._creator));
+        return (
+          <>
+            <SectionHeader icon={RefreshCw} number={22} title={t("reportSections.s22Title")} description={t("reportSections.s22Desc")} />
+            {rankings.versionEnrichment && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                <KpiCard icon={RefreshCw} label={t("kpis.avgVersion")} value={String(rankings.versionEnrichment.avgVersion || "—")} />
+                <KpiCard icon={RefreshCw} label={t("kpis.v5PlusIslands")} value={fmt(rankings.versionEnrichment.islandsWithVersion5Plus)} />
+                <KpiCard icon={RefreshCw} label={t("kpis.totalWithVersion")} value={fmt(rankings.versionEnrichment.totalWithVersion)} />
+              </div>
+            )}
+            <div className="grid md:grid-cols-2 gap-4 mb-4">
+              {ugcUpdated.length > 0 && (
+                <RankingTable title={t("rankings.mostUpdated") + " (UGC)"} icon={RefreshCw} showBadges showImage onImageClick={openLightbox} items={ugcUpdated.slice(0, 10)} />
+              )}
+              {epicUpdated.length > 0 && (
+                <RankingTable title={t("rankings.mostUpdated") + " (Epic)"} icon={RefreshCw} showImage onImageClick={openLightbox} items={epicUpdated.slice(0, 10)} />
+              )}
+            </div>
+            <AiNarrative text={getNarrative(22)} />
+            <div className="border-t border-border my-8" />
+          </>
+        );
+      })()}
+
+      {/* Section 23 (Rookie Creators) */}
+      {rankings.rookieCreators?.length > 0 && (
+        <>
+          <SectionHeader icon={Baby} number={23} title={t("reportSections.s23Title")} description={t("reportSections.s23Desc")} />
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+            <KpiCard icon={UserPlus} label={t("kpis.totalRookieCreators")} value={fmt(rankings.totalRookieCreators)} />
+            <KpiCard icon={MapIcon} label={t("kpis.totalRookieIslands")} value={fmt(rankings.totalRookieIslands)} />
+          </div>
+          <RankingTable
+            title={t("rankings.rookieCreators")}
+            icon={Baby}
+            items={(rankings.rookieCreators || []).map((item: any) => ({
+              name: item.creator_code,
+              subtitle: `${item.island_count} island${item.island_count > 1 ? "s" : ""} · Best: ${item.best_island_title || item.best_island_code}`,
+              value: item.total_plays || 0,
+            }))}
+          />
+          <AiNarrative text={getNarrative(23)} />
+          <div className="border-t border-border my-8" />
+        </>
+      )}
+
+      {/* Section 24 (Player Capacity Analysis) */}
+      {rankings.capacityAnalysis?.length > 0 && (
+        <>
+          <SectionHeader icon={UsersRound} number={24} title={t("reportSections.s24Title")} description={t("reportSections.s24Desc")} />
+          <RankingTable
+            title={t("rankings.capacityAnalysis")}
+            icon={UsersRound}
+            items={(rankings.capacityAnalysis || []).map((item: any) => ({
+              name: item.capacity_tier,
+              subtitle: `${fmt(item.island_count)} islands · D1: ${pct(item.avg_d1)} · D7: ${pct(item.avg_d7)}`,
+              value: Number(item.avg_plays) || 0,
+              label: `${fmt(Number(item.avg_plays))} avg plays`,
+            }))}
+          />
+          <AiNarrative text={getNarrative(24)} />
+          <div className="border-t border-border my-8" />
+        </>
+      )}
+
+      {/* Section 25 (UEFN vs FNC) */}
+      {rankings.toolSplit?.length > 0 && (
+        <>
+          <SectionHeader icon={Wrench} number={25} title={t("reportSections.s25Title")} description={t("reportSections.s25Desc")} />
+          <div className="grid md:grid-cols-2 gap-4 mb-4">
+            {(rankings.toolSplit || []).map((tool: any) => (
+              <Card key={tool.tool}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <Wrench className="h-4 w-4 text-primary" />
+                    {tool.tool}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div><span className="text-muted-foreground">Islands:</span> <strong>{fmt(tool.island_count)}</strong></div>
+                    <div><span className="text-muted-foreground">Total Plays:</span> <strong>{fmt(tool.total_plays)}</strong></div>
+                    <div><span className="text-muted-foreground">Avg Plays:</span> <strong>{fmt(Number(tool.avg_plays))}</strong></div>
+                    <div><span className="text-muted-foreground">Avg CCU:</span> <strong>{fmt(Number(tool.avg_peak_ccu))}</strong></div>
+                    <div><span className="text-muted-foreground">Avg D1:</span> <strong>{pct(Number(tool.avg_d1))}</strong></div>
+                    <div><span className="text-muted-foreground">Avg D7:</span> <strong>{pct(Number(tool.avg_d7))}</strong></div>
+                    <div><span className="text-muted-foreground">Avg Min/Player:</span> <strong>{Number(tool.avg_minutes_per_player).toFixed(1)} min</strong></div>
+                    <div><span className="text-muted-foreground">Favorites:</span> <strong>{fmt(tool.total_favorites)}</strong></div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <AiNarrative text={getNarrative(25)} />
+        </>
+      )}
+
+      <div className="border-t border-border my-8" />
+
+      {/* Section 26 (Exposure Efficiency) */}
+      {(rankings.topExposureEfficiency?.length > 0 || rankings.worstExposureEfficiency?.length > 0) && (
+        <>
+          <SectionHeader icon={Crosshair} number={26} title={t("reportSections.s26Title")} description={t("reportSections.s26Desc")} />
+          {rankings.exposureEfficiencyStats && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+              <KpiCard icon={Crosshair} label={t("rankings.islandsWithExposure")} value={fmt(rankings.exposureEfficiencyStats.total_islands_with_exposure)} />
+              <KpiCard icon={Zap} label={t("rankings.avgPlaysPerMin")} value={fmt(rankings.exposureEfficiencyStats.avg_plays_per_min)} />
+              <KpiCard icon={Target} label={t("rankings.medianPlaysPerMin")} value={fmt(rankings.exposureEfficiencyStats.median_plays_per_min)} />
+            </div>
+          )}
+          <div className="grid md:grid-cols-2 gap-4 mb-4">
+            {[
+              { data: rankings.topExposureEfficiency || [], title: t("rankings.topExposureEfficiency"), icon: Crosshair, barColor: "bg-primary" },
+              { data: rankings.worstExposureEfficiency || [], title: t("rankings.worstExposureEfficiency"), icon: AlertTriangle, barColor: "bg-destructive" },
+            ].map(({ data, title: cardTitle, icon: CardIcon, barColor }) => (
+              <Card key={cardTitle} className="backdrop-blur-sm bg-card/80 border-border/50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <CardIcon className="h-4 w-4 text-primary" />
+                    {cardTitle}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {data.slice(0, 10).map((item: any, idx: number) => {
+                    const badge = barColor !== "bg-destructive" && idx < 3 ? ["🥇","🥈","🥉"][idx] : null;
+                    const badgeBg = idx < 3 ? [
+                      "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30",
+                      "bg-gray-400/15 text-gray-500 dark:text-gray-300 border-gray-400/30",
+                      "bg-amber-600/15 text-amber-700 dark:text-amber-400 border-amber-600/30",
+                    ][idx] : "";
+                    const breakdown = item.panel_breakdown || [];
+                    return (
+                      <details key={idx} className="group">
+                        <summary className="flex items-center gap-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                          {badge ? (
+                            <span className={`flex items-center justify-center h-6 w-6 rounded-full border text-xs font-bold shrink-0 ${badgeBg}`}>{badge}</span>
+                          ) : (
+                            <span className="text-xs font-mono text-muted-foreground w-6 text-center shrink-0">{idx + 1}</span>
+                          )}
+                          {item.image_url && (
+                            <img src={item.image_url} alt="" className="h-8 w-8 rounded object-cover shrink-0 border border-border/30 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all" loading="lazy"
+                              onClick={(e) => { e.preventDefault(); openLightbox(item.image_url); }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium truncate block">{item.title || item.island_code}</span>
+                            <span className="text-[10px] text-muted-foreground truncate block">
+                              @{item.creator_code || "?"} · {fmt(item.total_minutes_exposed)} min exposed · {item.distinct_panels} panels
+                            </span>
+                          </div>
+                          <span className="text-xs font-display font-semibold whitespace-nowrap">{fmt(item.plays_per_min_exposed)} plays/min</span>
+                          <span className="text-muted-foreground text-xs group-open:rotate-90 transition-transform">▶</span>
+                        </summary>
+                        {breakdown.length > 0 && (
+                          <div className="mt-2 ml-9 space-y-1">
+                            {breakdown.map((p: any, pi: number) => (
+                              <div key={pi} className="flex items-center gap-2 text-[11px]">
+                                <span className="w-4 text-center text-muted-foreground font-mono">{pi + 1}</span>
+                                <span className="flex-1 truncate font-medium">{p.panel}</span>
+                                <span className="text-muted-foreground">{fmt(p.minutes)} min</span>
+                                <span className="text-muted-foreground">{p.appearances} appearances</span>
+                                {p.best_rank && <span className="text-primary text-[10px]">#{p.best_rank}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </details>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <AiNarrative text={getNarrative(26)} />
         </>
       )}
     </div>
@@ -393,7 +760,7 @@ function DiscoveryExposureSection({ exposure, weeklyReportId, t, locale, fmtDate
     if (!opts.find((p: any) => String(p.panelName) === panelName)) {
       setPanelName(opts[0]?.panelName || "");
     }
-  }, [profileId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [profileId]);
 
   const segs = activeTimeline.filter((s: any) => String(s.targetId) === profileId && String(s.panelName) === panelName);
   const segsByRank = new Map<number, any[]>();
@@ -423,7 +790,6 @@ function DiscoveryExposureSection({ exposure, weeklyReportId, t, locale, fmtDate
     setNextOffset(null);
     if (rankMax <= 10) return;
     fetchFull();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rankMax, profileId, panelName, weeklyReportId]);
 
   const topRows = topByPanel

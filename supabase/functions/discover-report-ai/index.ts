@@ -53,14 +53,69 @@ serve(async (req) => {
     const exposureSummary = buildExposureSummary(exposure, weeklyRow);
 
     const evidenceSummary = evidence ? JSON.stringify(evidence, null, 0) : null;
+    const r = rankings as any || {};
     const rankingsSummary = JSON.stringify({
       baselineAvailable: Boolean((kpis as any)?.baselineAvailable),
-      topNewIslandsByPlaysPublished: (rankings as any)?.topNewIslandsByPlaysPublished?.slice?.(0, 10) || [],
-      topNewIslandsByPlayersPublished: (rankings as any)?.topNewIslandsByPlayersPublished?.slice?.(0, 10) || [],
-      mostUpdatedIslandsThisWeek: (rankings as any)?.mostUpdatedIslandsThisWeek?.slice?.(0, 20) || [],
-      deadIslandsByUniqueDrop: (rankings as any)?.deadIslandsByUniqueDrop?.slice?.(0, 10) || [],
-      topRisers: (rankings as any)?.topRisers?.slice?.(0, 10) || [],
-      topDecliners: (rankings as any)?.topDecliners?.slice?.(0, 10) || [],
+      // Core rankings
+      topPeakCCU: r.topPeakCCU?.slice?.(0, 10) || [],
+      topPeakCCU_UGC: r.topPeakCCU_UGC?.slice?.(0, 10) || [],
+      topUniquePlayers: r.topUniquePlayers?.slice?.(0, 10) || [],
+      topTotalPlays: r.topTotalPlays?.slice?.(0, 10) || [],
+      topMinutesPlayed: r.topMinutesPlayed?.slice?.(0, 10) || [],
+      topAvgMinutesPerPlayer: r.topAvgMinutesPerPlayer?.slice?.(0, 10) || [],
+      // Retention
+      topRetentionD1: r.topRetentionD1?.slice?.(0, 10) || [],
+      topRetentionD7: r.topRetentionD7?.slice?.(0, 10) || [],
+      retentionDistributionD1: r.retentionDistributionD1 || [],
+      retentionDistributionD7: r.retentionDistributionD7 || [],
+      // Stickiness
+      topStickinessD1: r.topStickinessD1?.slice?.(0, 10) || [],
+      topStickinessD7: r.topStickinessD7?.slice?.(0, 10) || [],
+      topStickinessD1_UGC: r.topStickinessD1_UGC?.slice?.(0, 10) || [],
+      topStickinessD7_UGC: r.topStickinessD7_UGC?.slice?.(0, 10) || [],
+      // Creator performance
+      topCreatorsByPlays: r.topCreatorsByPlays?.slice?.(0, 10) || [],
+      topCreatorsByPlayers: r.topCreatorsByPlayers?.slice?.(0, 10) || [],
+      topCreatorsByMinutes: r.topCreatorsByMinutes?.slice?.(0, 10) || [],
+      topCreatorsByCCU: r.topCreatorsByCCU?.slice?.(0, 10) || [],
+      // Advocacy
+      topFavorites: r.topFavorites?.slice?.(0, 10) || [],
+      topRecommendations: r.topRecommendations?.slice?.(0, 10) || [],
+      topFavsPer100: r.topFavsPer100?.slice?.(0, 10) || [],
+      topRecPer100: r.topRecPer100?.slice?.(0, 10) || [],
+      // Efficiency
+      topPlaysPerPlayer: r.topPlaysPerPlayer?.slice?.(0, 10) || [],
+      topFavsPerPlay: r.topFavsPerPlay?.slice?.(0, 10) || [],
+      topRecsPerPlay: r.topRecsPerPlay?.slice?.(0, 10) || [],
+      topRetentionAdjD1: r.topRetentionAdjD1?.slice?.(0, 10) || [],
+      topRetentionAdjD7: r.topRetentionAdjD7?.slice?.(0, 10) || [],
+      // Trends & categories
+      trendingTopics: r.trendingTopics?.slice?.(0, 20) || [],
+      topTags: r.topTags?.slice?.(0, 20) || [],
+      topCategoriesByPlays: r.topCategoriesByPlays?.slice?.(0, 10) || [],
+      // New islands
+      topNewIslandsByPlays: r.topNewIslandsByPlays?.slice?.(0, 10) || [],
+      topNewIslandsByPlayers: r.topNewIslandsByPlayers?.slice?.(0, 10) || [],
+      mostUpdatedIslandsThisWeek: r.mostUpdatedIslandsThisWeek?.slice?.(0, 20) || [],
+      // Low perf
+      failedIslandsList: r.failedIslandsList?.slice?.(0, 10) || [],
+      lowPerfHistogram: r.lowPerfHistogram || [],
+      // Lifecycle
+      topRisers: r.topRisers?.slice?.(0, 10) || [],
+      topDecliners: r.topDecliners?.slice?.(0, 10) || [],
+      breakouts: r.breakouts?.slice?.(0, 10) || [],
+      revivedIslands: r.revivedIslands?.slice?.(0, 10) || [],
+      deadIslands: r.deadIslands?.slice?.(0, 10) || [],
+      // NEW: Sections 20-25 data
+      toolSplit: r.toolSplit || [],
+      capacityAnalysis: r.capacityAnalysis || [],
+      rookieCreators: r.rookieCreators?.slice?.(0, 10) || [],
+      totalRookieCreators: r.totalRookieCreators || 0,
+      totalRookieIslands: r.totalRookieIslands || 0,
+      multiPanelPresence: r.multiPanelPresence?.slice?.(0, 10) || [],
+      panelLoyalty: r.panelLoyalty?.slice?.(0, 10) || [],
+      versionEnrichment: r.versionEnrichment || null,
+      sacCoverage: r.sacCoverage || null,
     }, null, 0);
     const baselineAvailable = Boolean((kpis as any)?.baselineAvailable) || kpis.wowTotalPlays != null;
 
@@ -114,13 +169,16 @@ ${evidenceSummary || "Not available yet."}
 ${exposureSummary ? JSON.stringify(exposureSummary, null, 0) : "Not available for this week (collector not running or insufficient data yet)."}
 
 ## Instructions
-Write insightful narratives for each of the 14 sections below. Each narrative MUST be 4-6 sentences long, data-driven, and include:
+Write insightful narratives for each of the 25 sections below. Each narrative MUST be 4-6 sentences long, data-driven, and include:
 - Specific numbers and percentages from the data
 - Comparisons and patterns (e.g., "The top 3 islands account for X% of total plays")
 - Actionable insights for creators (e.g., "Creators should consider X genre given Y trend")
 - Notable standouts or anomalies worth highlighting
 - When WoW data is available, mention trends and changes vs last week
-- If baseline is not available (Baseline available = no), explicitly state that WoW/lifecycle movers are N/A and avoid inferring "stability" from missing data.
+- If baseline is not available (Baseline available = no), for sections that depend on WoW data (sections 16, 17, 18), write about what WILL be tracked once baseline exists. Discuss what the current snapshot reveals about the ecosystem's starting point. DO NOT write "none" or say there's no data — instead analyze the current week's absolute performance as the foundation for future comparisons.
+- Always explain what values mean (e.g., "5.37 plays per unique player", "71.26 favorites per 100 players")
+- For stickiness scores, explain the formula: plays × avgMinutes × retention
+- For Efficiency & Conversion (section 12), ALWAYS use the topFavsPerPlay, topRecsPerPlay, topPlaysPerPlayer data — these are available even without baseline.
 
 Write in English. Be analytical, not generic. Reference specific island names, creators, and categories from the rankings.
 
@@ -131,27 +189,38 @@ IMPORTANT terminology rules (MUST follow):
 - Keep island names, creator names, and technical terms in their original form
 
 Sections:
-1. Core Activity Overview - ecosystem health, new maps/creators, overall activity, WoW changes
-2. Trending Topics - emerging genres, popular themes, what's gaining traction
-3. Player Engagement - plays, CCU, duration patterns
-4. New Islands of the Week - standout newcomers, what genres are new creators choosing
-5. Retention & Loyalty - D1/D7 patterns, what keeps players coming back
-6. Creator Performance - top creators, what makes them successful
-7. Map Quality - duration, favorites, recommendations patterns
-8. Low Performance Analysis - why islands fail, common patterns in underperforming maps
-9. Ratios & Efficiency - engagement depth, conversion metrics
-10. Category & Tags - genre distribution, trending categories
-11. Conversion Efficiency - favorites/play, recommendations/play patterns
-12. Risers & Decliners - biggest WoW movers, what's growing and what's fading
-13. Island Lifecycle - revived islands, dead islands, breakout stories
-14. Discovery Exposure - which panels drove exposure, time-in-panel patterns, churn/stability, and actionable positioning insights (based on panel/rank timeline)`;
+1. Core Activity Overview - ecosystem health, total islands/creators, active vs inactive maps, avg maps per creator, new maps/creators, WoW changes
+2. Trending Topics - emerging themes detected via NLP analysis of island titles (weighted by plays). Explain what each trend means and why it's trending
+3. Player Engagement Volume - total plays, total players, avg CCU/map, avg session duration, total minutes played
+4. Peak CCU - top 10 peak CCU global (including Epic), top 10 UGC-only. Analyze concentration (gap between #1 and #2) and what drives peak moments
+5. New Islands of the Week - standout newcomers by plays and players, what genres new creators are choosing, launch success patterns
+6. Retention & Loyalty - avg D1/D7, distribution histograms (how many maps in each retention tier), what separates high-retention from low-retention maps
+7. Creator Performance - top creators by plays, uniques, minutes, CCU sum. Cross-reference: who appears in multiple rankings = consistent performer
+8. Map Quality - top avg minutes/player (with quality filter ≥1000 plays), top favorites, top recommendations. What makes a quality map
+9. Low Performance Analysis - count of low-perf islands, histogram (<50, <100, <500 players), top 10 worst with their tags/categories, common failure patterns
+10. Plays per Player (Replay Frequency) - top 10 replay frequency (≥1000 plays filter). What design patterns drive replays
+11. Advocacy Metrics - favorites per 100 players, recommendations per 100 players (with quality filters). What makes players advocate for a map
+12. Efficiency & Conversion - favorites/play ratio (topFavsPerPlay), recommendations/play ratio (topRecsPerPlay), plays per player (topPlaysPerPlayer). These metrics are ALWAYS available. Analyze conversion quality.
+13. Stickiness (D1 & D7) - top 10 stickiness scores (plays × avgMinutes × retention) for global and UGC. Explain what stickiness means and why it matters
+14. Retention-Adjusted Engagement - top 10 by avgMinutes × retention (D1 and D7, ≥1000 plays & ≥500 uniques filter). Deep engagement quality
+15. Category & Tags - genre distribution, top tags by island count, top categories by plays. Market composition analysis
+16. Weekly Growth / Breakouts - If baseline available: biggest risers by play delta, breakout detection. If NO baseline: analyze the current week's top performers as the "starting lineup", discuss which islands show signs of breakout potential based on their absolute metrics (high plays + high retention = likely breakout candidate)
+17. Risers & Decliners - If baseline available: specific WoW movers. If NO baseline: identify potential risers/decliners by analyzing metric imbalances (e.g., high plays but low retention = at risk of declining; low plays but high retention = poised to rise with more visibility)
+18. Island Lifecycle - revived islands, dead islands, breakout stories. If NO baseline: describe the ecosystem's current composition as the lifecycle starting point
+19. Discovery Exposure - which panels drove exposure, time-in-panel patterns, churn/stability, and actionable positioning insights (based on panel/rank timeline)
+20. Multi-Panel Presence - islands appearing in the most DISTINCT panels. Analyze versatility: which islands does Epic's algorithm distribute across multiple categories? Reference multiPanelPresence data with panel_names arrays. Highlight what makes these islands algorithmically versatile.
+21. Panel Loyalty (Residents) - islands with the longest cumulative exposure in a SINGLE panel. These are "category residents" that dominate a specific panel. Reference panelLoyalty data. Analyze what makes an island "own" a panel position.
+22. Most Updated Islands - islands with the highest version numbers (most iterations by creators). Reference mostUpdatedIslandsThisWeek and versionEnrichment data. Analyze the correlation between update frequency and performance. Include version distribution stats.
+23. Rookie Creators - new creators (first_seen this week) with standout performance. Reference rookieCreators data. Analyze how rookies compare to established creators. Highlight total new creators and their best islands.
+24. Player Capacity Analysis - performance breakdown by max_players tiers (Solo, Duo, Squad, Party, Large, Massive). Reference capacityAnalysis data. Which player count drives the best retention/engagement? Actionable insights for creators choosing party sizes.
+25. UEFN vs Fortnite Creative - tool split comparison. Reference toolSplit data. Compare avg plays, retention, CCU, minutes between UEFN and FNC islands. Which tool produces better-performing islands? What does this mean for creators choosing their development tool?`;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     // ── Step 1: Generate English narratives ──
     const sectionProps: Record<string, any> = {};
-    for (let i = 1; i <= 14; i++) {
+    for (let i = 1; i <= 25; i++) {
       sectionProps[`section${i}`] = {
         type: "object",
         properties: {

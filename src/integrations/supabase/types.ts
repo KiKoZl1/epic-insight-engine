@@ -1762,6 +1762,10 @@ export type Database = {
       get_link_card: { Args: { p_link_code: string }; Returns: Json }
       get_link_graph_stats: { Args: never; Returns: Json }
       get_metadata_pipeline_stats: { Args: never; Returns: Json }
+      get_panel_display_name: {
+        Args: { p_panel_name: string }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1796,6 +1800,54 @@ export type Database = {
         Args: { p_weekly_report_id: string }
         Returns: Json
       }
+      report_finalize_categories: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_creators: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_distributions: {
+        Args: { p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_exposure_analysis: {
+        Args: { p_days?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_exposure_efficiency: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_kpis: {
+        Args: { p_prev_report_id?: string; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_rankings: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_rookies: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_tool_split: {
+        Args: { p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_trending: {
+        Args: { p_limit?: number; p_min_islands?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_wow_movers: {
+        Args: {
+          p_limit?: number
+          p_prev_report_id: string
+          p_report_id: string
+        }
+        Returns: Json
+      }
       report_link_metadata_coverage: {
         Args: { p_report_id: string }
         Returns: Json
@@ -1817,6 +1869,7 @@ export type Database = {
           island_code: string
           title: string
           updated_at_epic: string
+          version: number
           week_plays: number
           week_unique: number
         }[]
