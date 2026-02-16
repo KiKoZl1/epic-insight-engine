@@ -147,6 +147,68 @@ const INITIAL_GEN: GenerationState = {
   throughputPerMin: 0, staleRequeuedCount: 0, rateLimitedCount: 0, suppressedCount: 0,
 };
 
+// ─── Alert Info Helper ────────────────────────────────────────
+
+function getAlertInfo(alert: SystemAlert): { title: string; description: string; detail?: string; action?: string } {
+  const d = alert.details || {};
+
+  switch (alert.alert_key) {
+    case "exposure_stale": {
+      const stale = Number(d.stale_targets || 0);
+      if (alert.severity === "ok") return {
+        title: "Exposure Pipeline",
+        description: "Todos os targets estão coletando dentro do SLA.",
+      };
+      return {
+        title: "Exposure Pipeline com Atraso",
+        description: `${stale} target${stale > 1 ? "s" : ""} não coletou dados no tempo esperado (2x o intervalo configurado).`,
+        detail: `Isso pode significar que o cron 'orchestrate-minute' falhou ou que a API da Epic está lenta/fora do ar. Targets em atraso não geram dados de exposição, afetando rankings e intel.`,
+        action: stale > 2 ? "⚠️ Verifique os logs do cron e o status da API da Epic." : "Monitorar — pode se resolver sozinho no próximo tick.",
+      };
+    }
+    case "metadata_backlog": {
+      const due = Number(d.due_now || 0);
+      if (alert.severity === "ok") return {
+        title: "Metadata Backlog",
+        description: `Backlog saudável (${fmt(due)} pendentes).`,
+      };
+      return {
+        title: "Backlog de Metadados Crescendo",
+        description: `${fmt(due)} itens prontos para coleta aguardando processamento.`,
+        detail: due > 50000
+          ? `O volume é muito alto. O collector pode não conseguir processar tudo a tempo. Verifique se o cron 'discover-links-metadata-orchestrate-min' está rodando e se não há muitos erros 429.`
+          : `O collector está processando mas não na velocidade necessária. Isso é esperado após enfileirar um grande volume. O backlog deve reduzir gradualmente.`,
+        action: due > 100000 ? "⚠️ Considere verificar os logs do metadata collector para erros." : undefined,
+      };
+    }
+    case "intel_freshness": {
+      const ageSec = d.age_seconds != null ? Number(d.age_seconds) : null;
+      const asOf = d.as_of ? new Date(d.as_of) : null;
+      const ageStr = ageSec != null
+        ? (ageSec < 60 ? `${ageSec}s` : ageSec < 3600 ? `${Math.round(ageSec / 60)} min` : `${Math.floor(ageSec / 3600)}h ${Math.round((ageSec % 3600) / 60)}m`)
+        : "desconhecido";
+      if (alert.severity === "ok") return {
+        title: "Intel Público",
+        description: `Dados atualizados há ${ageStr}. Premium, Emerging e Pollution estão frescos.`,
+      };
+      return {
+        title: "Intel Público Desatualizado",
+        description: `Última atualização há ${ageStr}${asOf ? ` (${asOf.toLocaleTimeString("pt-BR")})` : ""}.`,
+        detail: ageSec != null && ageSec > 1800
+          ? `Os dados públicos (Premium Now, Emerging, Pollution) estão defasados há mais de 30 minutos. O cron 'intel-refresh-5min' pode ter falhado. Páginas públicas mostram dados antigos.`
+          : `Leve atraso na atualização do Intel. Geralmente se resolve no próximo ciclo do cron (a cada 5 min).`,
+        action: ageSec != null && ageSec > 3600 ? "⚠️ Verifique os logs do cron 'intel-refresh-5min'." : undefined,
+      };
+    }
+    default:
+      return {
+        title: alert.message,
+        description: `Alerta: ${alert.alert_key}`,
+        detail: JSON.stringify(d),
+      };
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────
 
 export default function AdminOverview() {
@@ -491,29 +553,65 @@ export default function AdminOverview() {
         </CardContent>
       </Card>
 
-      {alertBad.length > 0 && (
-        <Card className="border-destructive/30">
-          <CardHeader className="py-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-destructive" /> Alertas Ativos
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0 pb-3 text-xs space-y-2">
-            {alertBad.slice(0, 6).map((a) => (
-              <div key={a.alert_key} className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2">
-                  <span className={`mt-0.5 inline-block h-2 w-2 rounded-full ${a.severity === "error" ? "bg-red-500" : "bg-yellow-500"}`} />
-                  <div>
-                    <div className="font-medium">{a.message}</div>
-                    <div className="text-[11px] text-muted-foreground">{a.alert_key}</div>
+      {/* ── Alerts Section (always visible) ──────────────── */}
+      <Card className={alertBad.length > 0 ? "border-destructive/30" : "border-green-500/30"}>
+        <CardHeader className="py-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            {alertBad.length > 0 ? (
+              <><AlertTriangle className="h-4 w-4 text-destructive" /> {alertBad.length} Alerta{alertBad.length > 1 ? "s" : ""} Ativo{alertBad.length > 1 ? "s" : ""}</>
+            ) : (
+              <><CheckCircle2 className="h-4 w-4 text-green-500" /> Todos os sistemas operacionais</>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 pb-3 space-y-3">
+          {alerts.map((a) => {
+            const age = a.updated_at ? Math.round((Date.now() - new Date(a.updated_at).getTime()) / 1000) : null;
+            const ageStr = age != null ? (age < 60 ? `${age}s atrás` : age < 3600 ? `${Math.round(age / 60)}min atrás` : `${Math.round(age / 3600)}h ${Math.round((age % 3600) / 60)}m atrás`) : "";
+            const info = getAlertInfo(a);
+            return (
+              <div
+                key={a.alert_key}
+                className={`rounded-lg border p-3 space-y-1.5 ${
+                  a.severity === "error" ? "bg-destructive/5 border-destructive/20" :
+                  a.severity === "warn" ? "bg-yellow-500/5 border-yellow-500/20" :
+                  "bg-green-500/5 border-green-500/20"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    <span className={`mt-1 inline-block h-2.5 w-2.5 rounded-full shrink-0 ${
+                      a.severity === "error" ? "bg-red-500 animate-pulse" :
+                      a.severity === "warn" ? "bg-yellow-500" : "bg-green-500"
+                    }`} />
+                    <div>
+                      <div className="font-semibold text-sm">{info.title}</div>
+                      <p className="text-xs text-muted-foreground mt-0.5">{info.description}</p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <Badge variant={a.severity === "error" ? "destructive" : a.severity === "warn" ? "secondary" : "default"} className="text-[10px]">
+                      {a.severity === "error" ? "Crítico" : a.severity === "warn" ? "Atenção" : "OK"}
+                    </Badge>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">{ageStr}</div>
                   </div>
                 </div>
-                <div className="text-[11px] text-muted-foreground whitespace-nowrap">{new Date(a.updated_at).toLocaleTimeString("pt-BR")}</div>
+                {info.detail && (
+                  <div className="ml-4.5 pl-2 border-l-2 border-muted text-[11px] text-muted-foreground">
+                    {info.detail}
+                  </div>
+                )}
+                {info.action && (
+                  <div className="ml-4.5 text-[11px] font-medium text-primary">{info.action}</div>
+                )}
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+            );
+          })}
+          {alerts.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-2">Nenhum alerta cadastrado. Execute o system alerts via cron.</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── Section 2: Database Census ─────────────────────── */}
       <div>
