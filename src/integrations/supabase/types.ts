@@ -1723,11 +1723,13 @@ export type Database = {
         Args: { p_due_within_minutes?: number; p_link_codes: string[] }
         Returns: Json
       }
+      get_census_stats: { Args: never; Returns: Json }
       get_island_card: {
         Args: { p_island_code: string; p_window_hours?: number }
         Returns: Json
       }
       get_link_card: { Args: { p_link_code: string }; Returns: Json }
+      get_metadata_pipeline_stats: { Args: never; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
