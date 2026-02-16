@@ -1796,6 +1796,38 @@ export type Database = {
         Args: { p_weekly_report_id: string }
         Returns: Json
       }
+      report_finalize_categories: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_creators: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_distributions: {
+        Args: { p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_kpis: {
+        Args: { p_prev_report_id?: string; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_rankings: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_trending: {
+        Args: { p_limit?: number; p_min_islands?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_wow_movers: {
+        Args: {
+          p_limit?: number
+          p_prev_report_id: string
+          p_report_id: string
+        }
+        Returns: Json
+      }
       report_link_metadata_coverage: {
         Args: { p_report_id: string }
         Returns: Json
