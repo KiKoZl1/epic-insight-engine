@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -84,12 +85,29 @@ interface WeeklyReport {
   cover_image_url?: string | null;
 }
 
+// Lightbox for thumbnails
+function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      <button onClick={onClose} className="absolute top-4 right-4 text-white/80 hover:text-white"><X className="h-6 w-6" /></button>
+      <img src={src} alt="" className="max-w-[90vw] max-h-[85vh] rounded-lg shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
+    </div>
+  );
+}
+
 export default function ReportView() {
   const { slug } = useParams<{ slug: string }>();
   const { t, i18n } = useTranslation();
   const locale = i18n.language === "pt-BR" ? "pt-BR" : "en-US";
   const [report, setReport] = useState<WeeklyReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const openLightbox = useCallback((src: string) => setLightboxSrc(src), []);
   const { toast } = useToast();
 
   const fmtDateTime = (iso: string): string => {
@@ -157,6 +175,7 @@ export default function ReportView() {
 
   return (
     <div className="px-6 py-8 max-w-6xl mx-auto pb-20">
+      {lightboxSrc && <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
       {(report as any).cover_image_url && (
         <div className="rounded-xl overflow-hidden mb-6 max-h-64">
           <img src={(report as any).cover_image_url} alt="Report cover" className="w-full h-64 object-cover" />
@@ -229,8 +248,8 @@ export default function ReportView() {
       {/* Section 4 (Peak CCU) */}
       <SectionHeader icon={BarChart3} number={4} title={t("reportSections.s4Title")} description={t("reportSections.s4Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topPeakCCU")} icon={BarChart3} showImage showBadges items={(rankings.topPeakCCU || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
-        <RankingTable title={t("rankings.topPeakCCU_UGC")} icon={BarChart3} showImage showBadges items={(rankings.topPeakCCU_UGC || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topPeakCCU")} icon={BarChart3} showImage showBadges onImageClick={openLightbox} items={(rankings.topPeakCCU || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topPeakCCU_UGC")} icon={BarChart3} showImage showBadges onImageClick={openLightbox} items={(rankings.topPeakCCU_UGC || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
       </div>
       <AiNarrative text={getNarrative(4)} />
 
@@ -239,8 +258,8 @@ export default function ReportView() {
       {/* Section 5 (New Islands) */}
       <SectionHeader icon={Sparkles} number={5} title={t("reportSections.s5Title")} description={t("reportSections.s5Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topNewByPlays")} icon={Play} showImage showBadges items={(rankings.topNewIslandsByPlaysPublished || rankings.topNewIslandsByPlays || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
-        <RankingTable title={t("rankings.topNewByCCU")} icon={BarChart3} showImage items={(rankings.topNewIslandsByCCU || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topNewByPlays")} icon={Play} showImage showBadges onImageClick={openLightbox} items={(rankings.topNewIslandsByPlaysPublished || rankings.topNewIslandsByPlays || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topNewByCCU")} icon={BarChart3} showImage onImageClick={openLightbox} items={(rankings.topNewIslandsByCCU || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
       </div>
       <AiNarrative text={getNarrative(5)} />
 
@@ -253,8 +272,8 @@ export default function ReportView() {
         <KpiCard icon={TrendingUp} label={t("kpis.avgD7")} value={pct(kpis.avgRetentionD7)} />
       </div>
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topD1")} icon={TrendingUp} showImage items={(rankings.topRetentionD1 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => pct(Number(v))} />
-        <RankingTable title={t("rankings.topD7")} icon={TrendingUp} showImage items={(rankings.topRetentionD7 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => pct(Number(v))} />
+        <RankingTable title={t("rankings.topD1")} icon={TrendingUp} showImage onImageClick={openLightbox} items={(rankings.topRetentionD1 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => pct(Number(v))} />
+        <RankingTable title={t("rankings.topD7")} icon={TrendingUp} showImage onImageClick={openLightbox} items={(rankings.topRetentionD7 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => pct(Number(v))} />
       </div>
       {rankings.retentionDistributionD1 && (
         <div className="grid md:grid-cols-2 gap-4 mb-4">
@@ -287,8 +306,8 @@ export default function ReportView() {
       {/* Section 8 (Map Quality) */}
       <SectionHeader icon={MapIcon} number={8} title={t("reportSections.s8Title")} description={t("reportSections.s8Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topAvgMinutes")} icon={Clock} showImage items={(rankings.topAvgMinutesPerPlayer || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1) + " min"} />
-        <RankingTable title={t("rankings.topMinutesPlayed")} icon={Clock} showImage items={(rankings.topMinutesPlayed || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topAvgMinutes")} icon={Clock} showImage onImageClick={openLightbox} items={(rankings.topAvgMinutesPerPlayer || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1) + " min"} />
+        <RankingTable title={t("rankings.topMinutesPlayed")} icon={Clock} showImage onImageClick={openLightbox} items={(rankings.topMinutesPlayed || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
       </div>
       <AiNarrative text={getNarrative(8)} />
 
@@ -305,7 +324,7 @@ export default function ReportView() {
             </div>
           )}
         </div>
-        <RankingTable title={t("rankings.lowEngagement")} icon={AlertTriangle} showImage items={(rankings.failedIslandsList || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-destructive" />
+        <RankingTable title={t("rankings.lowEngagement")} icon={AlertTriangle} showImage onImageClick={openLightbox} items={(rankings.failedIslandsList || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-destructive" />
       </div>
       <AiNarrative text={getNarrative(9)} />
 
@@ -314,7 +333,7 @@ export default function ReportView() {
       {/* Section 10 (Plays per Player) */}
       <SectionHeader icon={Zap} number={10} title={t("reportSections.s10Title")} description={t("reportSections.s10Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.playsPerPlayer")} icon={Zap} showImage items={(rankings.topPlaysPerPlayer || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2)} />
+        <RankingTable title={t("rankings.playsPerPlayer")} icon={Zap} showImage onImageClick={openLightbox} items={(rankings.topPlaysPerPlayer || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2)} />
       </div>
       <AiNarrative text={getNarrative(10)} />
 
@@ -323,8 +342,8 @@ export default function ReportView() {
       {/* Section 11 (Advocacy) */}
       <SectionHeader icon={Target} number={11} title={t("reportSections.s11Title")} description={t("reportSections.s11Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.favsPer100")} icon={Star} showImage items={(rankings.topFavsPer100 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2) + "%"} />
-        <RankingTable title={t("rankings.recsPer100")} icon={ThumbsUp} showImage items={(rankings.topRecPer100 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2) + "%"} />
+        <RankingTable title={t("rankings.favsPer100")} icon={Star} showImage onImageClick={openLightbox} items={(rankings.topFavsPer100 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2) + "%"} />
+        <RankingTable title={t("rankings.recsPer100")} icon={ThumbsUp} showImage onImageClick={openLightbox} items={(rankings.topRecPer100 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2) + "%"} />
       </div>
       <AiNarrative text={getNarrative(11)} />
 
@@ -333,8 +352,8 @@ export default function ReportView() {
       {/* Section 12 (Efficiency) */}
       <SectionHeader icon={Zap} number={12} title={t("reportSections.s12Title")} description={t("reportSections.s12Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topFavsPerPlay")} icon={Star} showImage items={(rankings.topFavsPerPlay || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(4)} />
-        <RankingTable title={t("rankings.topRecsPerPlay")} icon={ThumbsUp} showImage items={(rankings.topRecsPerPlay || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(4)} />
+        <RankingTable title={t("rankings.topFavsPerPlay")} icon={Star} showImage onImageClick={openLightbox} items={(rankings.topFavsPerPlay || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(4)} />
+        <RankingTable title={t("rankings.topRecsPerPlay")} icon={ThumbsUp} showImage onImageClick={openLightbox} items={(rankings.topRecsPerPlay || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(4)} />
       </div>
       <AiNarrative text={getNarrative(12)} />
 
@@ -343,12 +362,12 @@ export default function ReportView() {
       {/* Section 13 (Stickiness) */}
       <SectionHeader icon={Magnet} number={13} title={t("reportSections.s13Title")} description={t("reportSections.s13Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topStickinessD1")} icon={Magnet} showImage items={(rankings.topStickinessD1 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
-        <RankingTable title={t("rankings.topStickinessD7")} icon={Magnet} showImage items={(rankings.topStickinessD7 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topStickinessD1")} icon={Magnet} showImage onImageClick={openLightbox} items={(rankings.topStickinessD1 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topStickinessD7")} icon={Magnet} showImage onImageClick={openLightbox} items={(rankings.topStickinessD7 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
       </div>
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topStickinessD1_UGC")} icon={Magnet} showImage items={(rankings.topStickinessD1_UGC || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
-        <RankingTable title={t("rankings.topStickinessD7_UGC")} icon={Magnet} showImage items={(rankings.topStickinessD7_UGC || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topStickinessD1_UGC")} icon={Magnet} showImage onImageClick={openLightbox} items={(rankings.topStickinessD1_UGC || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
+        <RankingTable title={t("rankings.topStickinessD7_UGC")} icon={Magnet} showImage onImageClick={openLightbox} items={(rankings.topStickinessD7_UGC || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
       </div>
       <AiNarrative text={getNarrative(13)} />
 
@@ -357,8 +376,8 @@ export default function ReportView() {
       {/* Section 14 (Retention Adj Engagement) */}
       <SectionHeader icon={Target} number={14} title={t("reportSections.s14Title")} description={t("reportSections.s14Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topRetentionAdjD1")} icon={Target} showImage items={(rankings.topRetentionAdjD1 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1)} />
-        <RankingTable title={t("rankings.topRetentionAdjD7")} icon={Target} showImage items={(rankings.topRetentionAdjD7 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1)} />
+        <RankingTable title={t("rankings.topRetentionAdjD1")} icon={Target} showImage onImageClick={openLightbox} items={(rankings.topRetentionAdjD1 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1)} />
+        <RankingTable title={t("rankings.topRetentionAdjD7")} icon={Target} showImage onImageClick={openLightbox} items={(rankings.topRetentionAdjD7 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1)} />
       </div>
       <AiNarrative text={getNarrative(14)} />
 
@@ -393,7 +412,7 @@ export default function ReportView() {
       {/* Section 16 (Growth/Breakouts) */}
       <SectionHeader icon={Rocket} number={16} title={t("reportSections.s16Title")} description={t("reportSections.s16Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topWeeklyGrowth")} icon={Rocket} showImage items={(rankings.topWeeklyGrowth || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-success" />
+        <RankingTable title={t("rankings.topWeeklyGrowth")} icon={Rocket} showImage onImageClick={openLightbox} items={(rankings.topWeeklyGrowth || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-success" />
       </div>
       <AiNarrative text={getNarrative(16)} />
 
@@ -402,8 +421,8 @@ export default function ReportView() {
       {/* Section 17 (Risers) */}
       <SectionHeader icon={TrendingUp} number={17} title={t("reportSections.s12Title")} description={t("reportSections.s12Desc")} />
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.topRisers")} icon={TrendingUp} showImage items={(rankings.topRisers || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-success" />
-        <RankingTable title={t("rankings.topDecliners")} icon={TrendingDown} showImage items={(rankings.topDecliners || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-destructive" />
+        <RankingTable title={t("rankings.topRisers")} icon={TrendingUp} showImage onImageClick={openLightbox} items={(rankings.topRisers || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-success" />
+        <RankingTable title={t("rankings.topDecliners")} icon={TrendingDown} showImage onImageClick={openLightbox} items={(rankings.topDecliners || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-destructive" />
       </div>
       <AiNarrative text={getNarrative(17)} />
 
@@ -416,8 +435,8 @@ export default function ReportView() {
         <KpiCard icon={Skull} label={t("kpis.dead")} value={fmt(kpis.deadCount)} />
       </div>
       <div className="grid md:grid-cols-2 gap-4 mb-4">
-        <RankingTable title={t("rankings.revivedIslands")} icon={HeartPulse} showImage items={(rankings.revivedIslands || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-success" />
-        <RankingTable title={t("rankings.deadIslands")} icon={Skull} showImage items={(rankings.deadIslands || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-destructive" />
+        <RankingTable title={t("rankings.revivedIslands")} icon={HeartPulse} showImage onImageClick={openLightbox} items={(rankings.revivedIslands || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-success" />
+        <RankingTable title={t("rankings.deadIslands")} icon={Skull} showImage onImageClick={openLightbox} items={(rankings.deadIslands || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} barColor="bg-destructive" />
       </div>
       <AiNarrative text={getNarrative(18)} />
 
@@ -466,7 +485,8 @@ export default function ReportView() {
                         <span className="text-xs font-mono text-muted-foreground w-6 text-center shrink-0">{idx + 1}</span>
                       )}
                       {item.image_url && (
-                        <img src={item.image_url} alt="" className="h-8 w-8 rounded object-cover shrink-0 border border-border/30" loading="lazy"
+                        <img src={item.image_url} alt="" className="h-8 w-8 rounded object-cover shrink-0 border border-border/30 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all" loading="lazy"
+                          onClick={(e) => { e.preventDefault(); openLightbox(item.image_url); }}
                           onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                       )}
                       <div className="flex-1 min-w-0">
@@ -508,6 +528,7 @@ export default function ReportView() {
             icon={Anchor}
             showImage
             showBadges
+            onImageClick={openLightbox}
             items={(rankings.panelLoyalty || []).map((item: any) => ({
               name: item.title || item.link_code,
               code: item.link_code,
@@ -546,10 +567,10 @@ export default function ReportView() {
             )}
             <div className="grid md:grid-cols-2 gap-4 mb-4">
               {ugcUpdated.length > 0 && (
-                <RankingTable title={t("rankings.mostUpdated") + " (UGC)"} icon={RefreshCw} showBadges showImage items={ugcUpdated.slice(0, 10)} />
+                <RankingTable title={t("rankings.mostUpdated") + " (UGC)"} icon={RefreshCw} showBadges showImage onImageClick={openLightbox} items={ugcUpdated.slice(0, 10)} />
               )}
               {epicUpdated.length > 0 && (
-                <RankingTable title={t("rankings.mostUpdated") + " (Epic)"} icon={RefreshCw} showImage items={epicUpdated.slice(0, 10)} />
+                <RankingTable title={t("rankings.mostUpdated") + " (Epic)"} icon={RefreshCw} showImage onImageClick={openLightbox} items={epicUpdated.slice(0, 10)} />
               )}
             </div>
             <AiNarrative text={getNarrative(22)} />
@@ -645,34 +666,67 @@ export default function ReportView() {
             </div>
           )}
           <div className="grid md:grid-cols-2 gap-4 mb-4">
-            <RankingTable
-              title={t("rankings.topExposureEfficiency")}
-              icon={Crosshair}
-              showBadges
-              showImage
-              items={(rankings.topExposureEfficiency || []).map((item: any) => ({
-                name: item.title || item.island_code,
-                code: item.island_code,
-                subtitle: `@${item.creator_code || "?"} · ${fmt(item.total_minutes_exposed)} min exposed · ${item.distinct_panels} panels`,
-                value: item.plays_per_min_exposed,
-                label: `${fmt(item.plays_per_min_exposed)} plays/min`,
-                imageUrl: item.image_url,
-              }))}
-            />
-            <RankingTable
-              title={t("rankings.worstExposureEfficiency")}
-              icon={AlertTriangle}
-              barColor="bg-destructive"
-              showImage
-              items={(rankings.worstExposureEfficiency || []).map((item: any) => ({
-                name: item.title || item.island_code,
-                code: item.island_code,
-                subtitle: `@${item.creator_code || "?"} · ${fmt(item.total_minutes_exposed)} min exposed · ${item.distinct_panels} panels`,
-                value: item.plays_per_min_exposed,
-                label: `${fmt(item.plays_per_min_exposed)} plays/min`,
-                imageUrl: item.image_url,
-              }))}
-            />
+            {[
+              { data: rankings.topExposureEfficiency || [], title: t("rankings.topExposureEfficiency"), icon: Crosshair, barColor: "bg-primary" },
+              { data: rankings.worstExposureEfficiency || [], title: t("rankings.worstExposureEfficiency"), icon: AlertTriangle, barColor: "bg-destructive" },
+            ].map(({ data, title: cardTitle, icon: CardIcon, barColor }) => (
+              <Card key={cardTitle} className="backdrop-blur-sm bg-card/80 border-border/50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <CardIcon className="h-4 w-4 text-primary" />
+                    {cardTitle}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {data.slice(0, 10).map((item: any, idx: number) => {
+                    const badge = barColor !== "bg-destructive" && idx < 3 ? ["🥇","🥈","🥉"][idx] : null;
+                    const badgeBg = idx < 3 ? [
+                      "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30",
+                      "bg-gray-400/15 text-gray-500 dark:text-gray-300 border-gray-400/30",
+                      "bg-amber-600/15 text-amber-700 dark:text-amber-400 border-amber-600/30",
+                    ][idx] : "";
+                    const breakdown = item.panel_breakdown || [];
+                    return (
+                      <details key={idx} className="group">
+                        <summary className="flex items-center gap-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                          {badge ? (
+                            <span className={`flex items-center justify-center h-6 w-6 rounded-full border text-xs font-bold shrink-0 ${badgeBg}`}>{badge}</span>
+                          ) : (
+                            <span className="text-xs font-mono text-muted-foreground w-6 text-center shrink-0">{idx + 1}</span>
+                          )}
+                          {item.image_url && (
+                            <img src={item.image_url} alt="" className="h-8 w-8 rounded object-cover shrink-0 border border-border/30 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all" loading="lazy"
+                              onClick={(e) => { e.preventDefault(); openLightbox(item.image_url); }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium truncate block">{item.title || item.island_code}</span>
+                            <span className="text-[10px] text-muted-foreground truncate block">
+                              @{item.creator_code || "?"} · {fmt(item.total_minutes_exposed)} min exposed · {item.distinct_panels} panels
+                            </span>
+                          </div>
+                          <span className="text-xs font-display font-semibold whitespace-nowrap">{fmt(item.plays_per_min_exposed)} plays/min</span>
+                          <span className="text-muted-foreground text-xs group-open:rotate-90 transition-transform">▶</span>
+                        </summary>
+                        {breakdown.length > 0 && (
+                          <div className="mt-2 ml-9 space-y-1">
+                            {breakdown.map((p: any, pi: number) => (
+                              <div key={pi} className="flex items-center gap-2 text-[11px]">
+                                <span className="w-4 text-center text-muted-foreground font-mono">{pi + 1}</span>
+                                <span className="flex-1 truncate font-medium">{p.panel}</span>
+                                <span className="text-muted-foreground">{fmt(p.minutes)} min</span>
+                                <span className="text-muted-foreground">{p.appearances} app</span>
+                                {p.best_rank && <span className="text-primary text-[10px]">#{p.best_rank}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </details>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            ))}
           </div>
           <AiNarrative text={getNarrative(26)} />
         </>

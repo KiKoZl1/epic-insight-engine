@@ -18,6 +18,7 @@ interface RankingTableProps {
   barColor?: string;
   showImage?: boolean;
   showBadges?: boolean;
+  onImageClick?: (src: string) => void;
 }
 
 const BADGE_STYLES = [
@@ -42,6 +43,7 @@ export function RankingTable({
   barColor = "bg-primary",
   showImage = false,
   showBadges = false,
+  onImageClick,
 }: RankingTableProps) {
   if (!items || items.length === 0) return null;
   const maxVal = Math.max(...items.map((i) => i.value), 1);
@@ -74,8 +76,9 @@ export function RankingTable({
                 <img
                   src={item.imageUrl}
                   alt=""
-                  className="h-8 w-8 rounded object-cover shrink-0 border border-border/30"
+                  className={`h-8 w-8 rounded object-cover shrink-0 border border-border/30 ${onImageClick ? "cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all" : ""}`}
                   loading="lazy"
+                  onClick={onImageClick ? () => onImageClick(item.imageUrl!) : undefined}
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                 />
               )}
