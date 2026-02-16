@@ -127,6 +127,7 @@ interface LinkGraphData {
   edgeAgeSeconds: number | null;
   staleEdges60d: number;
   collectionsDueNow: number;
+  referenceCollections: number;
 }
 
 interface LookupPipelineData {
@@ -492,6 +493,7 @@ export default function AdminOverview() {
       edgeAgeSeconds: s.edge_age_seconds != null ? Number(s.edge_age_seconds) : null,
       staleEdges60d: Number(s.stale_edges_60d || 0),
       collectionsDueNow: Number(s.collections_due_now || 0),
+      referenceCollections: Number(s.reference_collections || 0),
     });
   }, []);
 
@@ -963,7 +965,7 @@ export default function AdminOverview() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-sm font-medium">
-                  Resolucao 24h: {fmt(linkGraph?.collectionsResolved24h)} / {fmt(linkGraph?.collectionsSeen24h)} collections
+                  Resolucao 24h: {fmt(linkGraph?.collectionsResolved24h)} / {fmt(linkGraph?.collectionsSeen24h)} resolvíveis
                 </span>
                 <span className="text-sm font-mono font-bold">
                   {linkGraph?.resolution24hPct != null ? `${(linkGraph.resolution24hPct * 100).toFixed(1)}%` : "--"}
@@ -971,8 +973,8 @@ export default function AdminOverview() {
               </div>
               <Progress value={linkGraph?.resolution24hPct != null ? linkGraph.resolution24hPct * 100 : 0} className="h-3" />
               <div className="flex justify-between mt-1 text-[10px] text-muted-foreground">
-                <span>edges total: {fmt(linkGraph?.edgesTotal)}</span>
-                <span>collections due now: {fmt(linkGraph?.collectionsDueNow)}</span>
+                <span>edges: {fmt(linkGraph?.edgesTotal)} · due: {fmt(linkGraph?.collectionsDueNow)}</span>
+                <span className="text-muted-foreground/60">+{fmt(linkGraph?.referenceCollections)} reference_* (não resolvíveis)</span>
               </div>
             </div>
 
@@ -980,17 +982,20 @@ export default function AdminOverview() {
               <StatCard icon={Layers} label="Edges" value={fmt(linkGraph?.edgesTotal)} />
               <StatCard icon={Hash} label="Parents" value={fmt(linkGraph?.parentsTotal)} />
               <StatCard icon={Hash} label="Children" value={fmt(linkGraph?.childrenTotal)} />
-              <StatCard icon={CalendarClock} label="Seen 24h" value={fmt(linkGraph?.collectionsSeen24h)} />
+              <StatCard icon={CalendarClock} label="Resolvíveis" value={fmt(linkGraph?.collectionsSeen24h)} sub="playlist_* + set_*" />
               <StatCard icon={CheckCircle2} label="Resolved 24h" value={fmt(linkGraph?.collectionsResolved24h)} color="success" />
+              <StatCard icon={EyeOff} label="Reference" value={fmt(linkGraph?.referenceCollections)} sub="API não suporta" />
               <StatCard icon={AlertTriangle} label="Stale >60d" value={fmt(linkGraph?.staleEdges60d)} color={linkGraph && linkGraph.staleEdges60d > 10000 ? "warning" : "default"} />
             </div>
 
             <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5 text-xs">
               <p className="font-semibold text-sm">Notify / Acoes Recomendadas</p>
-              {(linkGraph?.resolution24hPct ?? 0) < 0.5 && (linkGraph?.collectionsSeen24h || 0) > 0 ? (
-                <p className="text-destructive">Cobertura baixa de rails resolvidos. Executar backfill_recent_collections e revisar logs do metadata collector.</p>
+              {(linkGraph?.resolution24hPct ?? 0) < 0.5 && (linkGraph?.collectionsSeen24h || 0) > 5 ? (
+                <p className="text-destructive">Cobertura baixa de rails resolvidos ({fmt(linkGraph?.collectionsResolved24h)}/{fmt(linkGraph?.collectionsSeen24h)} resolvíveis). Executar backfill e revisar logs.</p>
+              ) : (linkGraph?.collectionsSeen24h || 0) === 0 ? (
+                <p className="text-muted-foreground">Nenhuma coleção resolvível ativa no momento. {(linkGraph?.referenceCollections || 0) > 0 ? `(${fmt(linkGraph?.referenceCollections)} reference_* ignoradas — API não suporta)` : ""}</p>
               ) : (
-                <p className="text-muted-foreground">Cobertura de rails dentro do esperado.</p>
+                <p className="text-muted-foreground">✅ Cobertura de rails dentro do esperado. {(linkGraph?.referenceCollections || 0) > 0 ? `(${fmt(linkGraph?.referenceCollections)} reference_* excluídas da métrica)` : ""}</p>
               )}
               {(linkGraph?.edgeAgeSeconds ?? 0) > 21600 ? (
                 <p className="text-yellow-600">Link graph desatualizado (&gt; 6h). Verifique cron do metadata orchestrate.</p>
