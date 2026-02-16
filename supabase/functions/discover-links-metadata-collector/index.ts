@@ -37,16 +37,21 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function requireAdminOrEditor(req: Request, supabase: any) {
+async function requireAdminOrEditor(req: Request) {
   const auth = req.headers.get("Authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
   if (!token) throw new Error("forbidden: missing Authorization");
 
-  const { data: u, error: uErr } = await supabase.auth.getUser(token);
-  if (uErr || !u?.user?.id) throw new Error("forbidden: invalid user");
-  const userId = u.user.id;
+  const supabaseAuth = createClient(mustEnv("SUPABASE_URL"), mustEnv("SUPABASE_ANON_KEY"), {
+    global: { headers: { Authorization: auth } },
+  });
 
-  const { data: roles, error: rErr } = await supabase
+  const { data: userData, error: uErr } = await supabaseAuth.auth.getUser();
+  if (uErr || !userData?.user?.id) throw new Error("forbidden: invalid user");
+  const userId = userData.user.id;
+
+  const svc = createClient(mustEnv("SUPABASE_URL"), mustEnv("SUPABASE_SERVICE_ROLE_KEY"));
+  const { data: roles, error: rErr } = await svc
     .from("user_roles")
     .select("role")
     .eq("user_id", userId)
@@ -330,8 +335,7 @@ serve(async (req) => {
 
     if (authHeader !== `Bearer ${serviceKey}`) {
        if (userAuthModes.includes(mode)) {
-          const supabaseUser = createClient(mustEnv("SUPABASE_URL"), mustEnv("SUPABASE_ANON_KEY"));
-          await requireAdminOrEditor(req, supabaseUser);
+          await requireAdminOrEditor(req);
        } else {
           return json({ error: "Forbidden: service_role required" }, 403);
        }
