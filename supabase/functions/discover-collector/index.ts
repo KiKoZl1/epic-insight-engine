@@ -1433,739 +1433,189 @@ serve(async (req) => {
 
     // ======================== MODE: FINALIZE ========================
     if (mode === "finalize") {
-      console.log(`[finalize] Starting for report ${reportId}`);
+      console.log(`[finalize] Starting for report ${reportId} — SQL RPC mode`);
 
-      // Get report info for week_start
+      // Get report info
       const { data: reportInfo } = await supabase
         .from("discover_reports")
-        .select("week_start")
+        .select("week_start, week_end, week_number, year")
         .eq("id", reportId)
         .single();
+      if (!reportInfo) throw new Error("Report not found");
 
-      const weekStart = reportInfo?.week_start;
-      const weekEnd = (await supabase.from("discover_reports").select("week_end").eq("id", reportId).single()).data?.week_end;
-      const weekStartDate = weekStart ? new Date(String(weekStart)).toISOString().slice(0, 10) : null;
-      const weekEndDate = weekEnd ? new Date(String(weekEnd)).toISOString().slice(0, 10) : null;
+      const weekStartDate = new Date(String(reportInfo.week_start)).toISOString().slice(0, 10);
+      const weekEndDate = new Date(String(reportInfo.week_end)).toISOString().slice(0, 10);
 
-      // Load cache for new/revived/dead detection (page to avoid hard limits)
-      const allCache: any[] = [];
-      for (let offset = 0; offset < 1_000_000; offset += 10000) {
-        const { data, error } = await supabase
-          .from("discover_islands_cache")
-          .select("island_code, first_seen_at, last_status, reported_streak, suppressed_streak, last_suppressed_at, last_reported_at, last_week_unique, last_week_plays, last_week_minutes, last_week_peak_ccu, last_week_favorites, last_week_recommends, title, creator_code, category")
-          .range(offset, offset + 10000 - 1);
-        if (error) throw new Error(`Failed to page discover_islands_cache: ${error.message}`);
-        const rows = data || [];
-        allCache.push(...rows);
-        if (rows.length < 10000) break;
-      }
-      
-      const cacheMap = new Map<string, any>();
-      for (const c of (allCache || [])) cacheMap.set(c.island_code, c);
-
-      // Fetch ALL reported islands for this report (paginated — PostgREST max 1000 rows per request)
-      const ISLAND_COLS = "island_code,title,creator_code,category,tags,created_in,status,week_plays,week_unique,week_minutes,week_peak_ccu_max,week_favorites,week_recommends,week_d1_avg,week_d7_avg,week_minutes_per_player_avg";
-      const allReportedIslands: any[] = [];
-      const PAGE = 1000;
-      for (let offset = 0; ; offset += PAGE) {
-        const { data, error } = await supabase
-          .from("discover_report_islands")
-          .select(ISLAND_COLS)
-          .eq("report_id", reportId)
-          .eq("status", "reported")
-          .range(offset, offset + PAGE - 1);
-        if (error) throw new Error(`Failed to fetch report islands page ${offset}: ${error.message}`);
-        const rows = data || [];
-        allReportedIslands.push(...rows);
-        if (rows.length < PAGE) break;
-      }
-
-      const islands = allReportedIslands;
-      console.log(`[finalize] ${islands.length} reported islands`);
-
-      // Get counts
-      const { count: totalQueued } = await supabase
-        .from("discover_report_queue")
-        .select("*", { count: "exact", head: true })
-        .eq("report_id", reportId);
-
-      const { count: suppressedCount } = await supabase
-        .from("discover_report_islands")
-        .select("*", { count: "exact", head: true })
-        .eq("report_id", reportId)
-        .eq("status", "suppressed");
-
-      // ---- Detect new islands & creators from cache ----
-      const newIslandsFromCache = (allCache || []).filter((c: any) => {
-        if (!c.first_seen_at || !weekStart) return false;
-        return c.first_seen_at >= weekStart;
-      });
-      const newIslandCodes = new Set(newIslandsFromCache.map((c: any) => c.island_code));
-
-      // Detect new creators: creators whose first island appeared this week
-      const creatorsFirstSeen: Record<string, string> = {};
-      for (const c of (allCache || [])) {
-        if (!c.creator_code || !c.first_seen_at) continue;
-        if (!creatorsFirstSeen[c.creator_code] || c.first_seen_at < creatorsFirstSeen[c.creator_code]) {
-          creatorsFirstSeen[c.creator_code] = c.first_seen_at;
-        }
-      }
-      const newCreatorsList = weekStart
-        ? Object.entries(creatorsFirstSeen).filter(([_, firstSeen]) => firstSeen >= weekStart).map(([code]) => code)
-        : [];
-
-      // ---- Detect revived islands (reported_streak=1 and had suppressed before) ----
-      const revivedIslands: any[] = [];
-      for (const isl of islands) {
-        const cached = cacheMap.get(isl.island_code);
-        if (cached && cached.reported_streak === 1 && cached.last_suppressed_at) {
-          revivedIslands.push({
-            code: isl.island_code,
-            name: isl.title || isl.island_code,
-            title: isl.title,
-            creator: isl.creator_code,
-            category: isl.category,
-            value: isl.week_plays || 0,
-          });
-        }
-      }
-
-      // ---- Detect dead islands (were reported in previous cache, now suppressed this report) ----
-      const { data: suppressedIslands } = await supabase
-        .from("discover_report_islands")
-        .select("island_code, title, creator_code, category")
-        .eq("report_id", reportId)
-        .eq("status", "suppressed")
-        .limit(1000);
-
-      const deadIslands: any[] = [];
-      for (const si of (suppressedIslands || [])) {
-        const cached = cacheMap.get(si.island_code);
-        // Was reported before (had last_reported_at) and now suppressed with streak=1
-        if (cached && cached.suppressed_streak === 1 && cached.last_reported_at) {
-          deadIslands.push({
-            code: si.island_code,
-            name: si.title || si.island_code,
-            title: si.title,
-            creator: si.creator_code,
-            category: si.category,
-            value: cached.last_week_plays || 0,
-          });
-        }
-      }
-
-      // ---- WoW deltas per island ----
-      const islandsWithDelta = islands.map((isl: any) => {
-        const cached = cacheMap.get(isl.island_code);
-        // Cache contains PREVIOUS week data (written before this report's write-through)
-        // But since write-through already ran in metrics mode, cache has current data
-        // We need to compare current report values vs cache's last_week_* (which are from previous report)
-        // Note: at this point cache already has THIS week's data from write-through, so we can't compare directly
-        // The write-through in metrics wrote the current week values, overwriting previous ones
-        // So we need the previous report's data instead
-        return {
-          ...isl,
-          delta_plays: null as number | null,
-          delta_unique: null as number | null,
-          delta_minutes: null as number | null,
-          delta_peak_ccu: null as number | null,
-          delta_favorites: null as number | null,
-          delta_recommends: null as number | null,
-        };
-      });
-
-      // Get previous report for WoW comparison
+      // Find previous report for WoW deltas
       const { data: prevReport } = await supabase
         .from("discover_reports")
-        .select("id, platform_kpis")
+        .select("id")
         .eq("phase", "done")
-        .order("created_at", { ascending: false })
+        .lt("week_end", reportInfo.week_start)
+        .order("week_end", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
+      const prevReportId = prevReport?.id || null;
 
-      const baselineAvailable = Boolean(prevReport?.id);
+      // Call ALL RPCs in parallel — this is the core improvement
+      const [kpisRes, rankingsRes, creatorsRes, categoriesRes, distributionsRes, trendingRes, moversRes, newIslandsRes, updatedRes, newCountRes] = await Promise.all([
+        supabase.rpc("report_finalize_kpis", { p_report_id: reportId, p_prev_report_id: prevReportId }),
+        supabase.rpc("report_finalize_rankings", { p_report_id: reportId, p_limit: 10 }),
+        supabase.rpc("report_finalize_creators", { p_report_id: reportId, p_limit: 10 }),
+        supabase.rpc("report_finalize_categories", { p_report_id: reportId, p_limit: 15 }),
+        supabase.rpc("report_finalize_distributions", { p_report_id: reportId }),
+        supabase.rpc("report_finalize_trending", { p_report_id: reportId, p_min_islands: 5, p_limit: 20 }),
+        prevReportId
+          ? supabase.rpc("report_finalize_wow_movers", { p_report_id: reportId, p_prev_report_id: prevReportId, p_limit: 10 })
+          : Promise.resolve({ data: { topRisers: [], topDecliners: [] }, error: null }),
+        supabase.rpc("report_new_islands_by_launch", { p_report_id: reportId, p_week_start: weekStartDate, p_week_end: weekEndDate, p_limit: 50 }),
+        supabase.rpc("report_most_updated_islands", { p_report_id: reportId, p_week_start: weekStartDate, p_week_end: weekEndDate, p_limit: 50 }),
+        supabase.rpc("report_new_islands_by_launch_count", { p_report_id: reportId, p_week_start: weekStartDate, p_week_end: weekEndDate }),
+      ]);
 
-      // Links metadata derived lists (best-effort; may be empty until metadata collector warms up)
-      let newIslandsByLaunchRows: any[] = [];
-      let newIslandsByLaunchCount: number | null = null;
-      let mostUpdatedRows: any[] = [];
-      try {
-        if (weekStartDate && weekEndDate) {
-          const { data: cnt } = await supabase.rpc("report_new_islands_by_launch_count", {
-            p_report_id: reportId,
-            p_week_start: weekStartDate,
-            p_week_end: weekEndDate,
-          });
-          newIslandsByLaunchCount = cnt != null ? Number(cnt) : null;
-
-          const { data: rows } = await supabase.rpc("report_new_islands_by_launch", {
-            p_report_id: reportId,
-            p_week_start: weekStartDate,
-            p_week_end: weekEndDate,
-            p_limit: 200,
-          });
-          newIslandsByLaunchRows = (rows as any[]) || [];
-
-          const { data: upds } = await supabase.rpc("report_most_updated_islands", {
-            p_report_id: reportId,
-            p_week_start: weekStartDate,
-            p_week_end: weekEndDate,
-            p_limit: 200,
-          });
-          mostUpdatedRows = (upds as any[]) || [];
-        }
-      } catch (e) {
-        console.log(`[finalize] links metadata lists skipped: ${e instanceof Error ? e.message : String(e)}`);
+      // Check for errors
+      for (const [name, res] of [["kpis", kpisRes], ["rankings", rankingsRes], ["creators", creatorsRes], ["categories", categoriesRes], ["distributions", distributionsRes], ["trending", trendingRes], ["movers", moversRes]] as const) {
+        if ((res as any).error) console.error(`[finalize] RPC ${name} error:`, (res as any).error.message);
       }
 
-      // If we have a previous report, fetch its island data for WoW deltas
-      if (prevReport?.id) {
-        const { data: prevIslands } = await supabase
-          .from("discover_report_islands")
-          .select("island_code, week_plays, week_unique, week_minutes, week_peak_ccu_max, week_favorites, week_recommends")
-          .eq("report_id", prevReport.id)
-          .eq("status", "reported");
-
-        const prevMap = new Map<string, any>();
-        for (const pi of (prevIslands || [])) prevMap.set(pi.island_code, pi);
-
-        for (const isl of islandsWithDelta) {
-          const prev = prevMap.get(isl.island_code);
-          if (prev) {
-            isl.delta_plays = (isl.week_plays || 0) - (prev.week_plays || 0);
-            isl.delta_unique = (isl.week_unique || 0) - (prev.week_unique || 0);
-            isl.delta_minutes = (isl.week_minutes || 0) - (prev.week_minutes || 0);
-            isl.delta_peak_ccu = (isl.week_peak_ccu_max || 0) - (prev.week_peak_ccu_max || 0);
-            isl.delta_favorites = (isl.week_favorites || 0) - (prev.week_favorites || 0);
-            isl.delta_recommends = (isl.week_recommends || 0) - (prev.week_recommends || 0);
-          }
-        }
-      }
-
-      // Compute KPIs
-      const activeIslands = islands.filter((i: any) => (i.week_unique || 0) >= 5);
-      const uniqueCreators = new Set(islands.map((i: any) => i.creator_code).filter(Boolean));
-      const safeDiv = (n: number, d: number) => d > 0 ? n / d : 0;
-
-      const totalPlays = islands.reduce((s: number, i: any) => s + (i.week_plays || 0), 0);
-      const totalPlayers = islands.reduce((s: number, i: any) => s + (i.week_unique || 0), 0);
-      const totalMinutes = islands.reduce((s: number, i: any) => s + (i.week_minutes || 0), 0);
-      const totalFavorites = islands.reduce((s: number, i: any) => s + (i.week_favorites || 0), 0);
-      const totalRecommends = islands.reduce((s: number, i: any) => s + (i.week_recommends || 0), 0);
-
-      // New islands from report (reported + new to cache)
-      const newIslandsReported = islands.filter((i: any) => newIslandCodes.has(i.island_code));
-      const failedIslands = islands.filter((i: any) => (i.week_unique || 0) > 0 && (i.week_unique || 0) < 500);
-
-      // WoW KPIs
-      const prevKpis = prevReport?.platform_kpis || {};
-      const wowDelta = (current: number, prev: number) => prev > 0 ? ((current - prev) / prev) * 100 : null;
-
-      const platformKPIs: any = {
-        totalIslands: totalQueued || islands.length,
-        activeIslands: activeIslands.length,
-        inactiveIslands: (totalQueued || 0) - activeIslands.length,
-        suppressedIslands: suppressedCount || 0,
-        totalCreators: uniqueCreators.size,
-        avgMapsPerCreator: safeDiv(islands.length, uniqueCreators.size),
-        totalPlays,
-        totalUniquePlayers: totalPlayers,
-        totalMinutesPlayed: totalMinutes,
-        totalFavorites,
-        totalRecommendations: totalRecommends,
-        avgPlayDuration: safeDiv(
-          activeIslands.reduce((s: number, i: any) => s + (i.week_minutes_per_player_avg || 0), 0),
-          activeIslands.length
-        ),
-        avgCCUPerMap: safeDiv(
-          activeIslands.reduce((s: number, i: any) => s + (i.week_peak_ccu_max || 0), 0),
-          activeIslands.length
-        ),
-        avgPlayersPerDay: safeDiv(totalPlayers, 7),
-        avgRetentionD1: safeDiv(
-          activeIslands.reduce((s: number, i: any) => s + (i.week_d1_avg || 0), 0),
-          activeIslands.length
-        ),
-        avgRetentionD7: safeDiv(
-          activeIslands.reduce((s: number, i: any) => s + (i.week_d7_avg || 0), 0),
-          activeIslands.length
-        ),
-        favToPlayRatio: safeDiv(totalFavorites, totalPlays),
-        recToPlayRatio: safeDiv(totalRecommends, totalPlays),
-        newMapsThisWeek: newIslandsByLaunchCount != null ? newIslandsByLaunchCount : newIslandsReported.length,
-        newMapsThisWeekPublished: newIslandsByLaunchCount,
-        newCreatorsThisWeek: newCreatorsList.length,
-        failedIslands: failedIslands.length,
-        baselineAvailable,
-        // WoW deltas (percentage change)
-        wowTotalPlays: wowDelta(totalPlays, prevKpis.totalPlays || 0),
-        wowTotalPlayers: wowDelta(totalPlayers, prevKpis.totalUniquePlayers || 0),
-        wowTotalMinutes: wowDelta(totalMinutes, prevKpis.totalMinutesPlayed || 0),
-        wowActiveIslands: wowDelta(activeIslands.length, prevKpis.activeIslands || 0),
-        wowNewMaps: newIslandsReported.length - (prevKpis.newMapsThisWeek || 0),
-        wowNewCreators: newCreatorsList.length - (prevKpis.newCreatorsThisWeek || 0),
-        revivedCount: revivedIslands.length,
-        deadCount: deadIslands.length,
+      const platformKPIs = {
+        ...(kpisRes.data || {}),
+        newMapsThisWeekPublished: newCountRes.data != null ? Number(newCountRes.data) : (kpisRes.data?.newMapsThisWeek || 0),
+        baselineAvailable: Boolean(prevReportId),
       };
 
-      // Rankings helper — now with label and subtitle support
-      const topN = (arr: any[], key: string, n: number, opts?: { label?: (i: any) => string; subtitle?: (i: any) => string; filter?: (i: any) => boolean }) =>
-        [...arr]
-          .filter((i) => i[key] != null && Number(i[key]) > 0 && (!opts?.filter || opts.filter(i)))
-          .sort((a, b) => Number(b[key]) - Number(a[key]))
-          .slice(0, n)
-          .map((i) => {
-            const mappedValue = Number(i[key]);
-            const mapped = {
-              code: i.island_code || i.code,
-              title: i.title || i.island_code || i.code,
-              creator: i.creator_code || i.creator || "unknown",
-              category: i.category || "Fortnite UGC",
-              value: mappedValue,
-              name: i.title || i.name || i.creator_code || i.island_code || i.code,
-            } as any;
-            // Pass mapped item with value to label/subtitle formatters
-            if (opts?.label) mapped.label = opts.label({ ...i, value: mappedValue });
-            if (opts?.subtitle) mapped.subtitle = opts.subtitle({ ...i, value: mappedValue });
-            return mapped;
-          });
-
-      // UGC filter
-      const ugcIslands = islands.filter((i: any) => i.creator_code !== "fortnite" && i.creator_code !== "epic");
-
-      // Creator aggregation
-      const creatorsMap: Record<string, any> = {};
-      for (const isl of islands) {
-        const ck = isl.creator_code || "unknown";
-        if (!creatorsMap[ck]) {
-          creatorsMap[ck] = { name: ck, creator: ck, totalPlays: 0, uniquePlayers: 0, minutesPlayed: 0, peakCCU: 0, maps: 0, favorites: 0, recommendations: 0, sumD1: 0, sumD7: 0, countD1: 0, countD7: 0 };
-        }
-        const c = creatorsMap[ck];
-        c.totalPlays += isl.week_plays || 0;
-        c.uniquePlayers += isl.week_unique || 0;
-        c.minutesPlayed += isl.week_minutes || 0;
-        c.peakCCU = Math.max(c.peakCCU, isl.week_peak_ccu_max || 0);
-        c.favorites += isl.week_favorites || 0;
-        c.recommendations += isl.week_recommends || 0;
-        c.maps++;
-        if ((isl.week_d1_avg || 0) > 0) { c.sumD1 += isl.week_d1_avg; c.countD1++; }
-        if ((isl.week_d7_avg || 0) > 0) { c.sumD7 += isl.week_d7_avg; c.countD7++; }
-      }
-      const creators = Object.values(creatorsMap).map((c: any) => ({
-        ...c,
-        avgD1: c.countD1 > 0 ? c.sumD1 / c.countD1 : 0,
-        avgD7: c.countD7 > 0 ? c.sumD7 / c.countD7 : 0,
-        value: c.totalPlays,
+      const topNewItems = (newIslandsRes.data || []).map((r: any) => ({
+        code: r.island_code, name: r.title || r.island_code, title: r.title,
+        creator: r.creator_code, category: r.category || "Fortnite UGC", value: r.week_plays || 0,
       }));
 
-      // Category aggregation
-      const categoriesMap: Record<string, any> = {};
-      const tagsMap: Record<string, number> = {};
-      for (const isl of islands) {
-        const cat = isl.category || "Fortnite UGC";
-        if (!categoriesMap[cat]) {
-          categoriesMap[cat] = { name: cat, category: cat, totalPlays: 0, uniquePlayers: 0, minutesPlayed: 0, peakCCU: 0, maps: 0, favorites: 0, recommendations: 0 };
-        }
-        const cm = categoriesMap[cat];
-        cm.totalPlays += isl.week_plays || 0;
-        cm.uniquePlayers += isl.week_unique || 0;
-        cm.minutesPlayed += isl.week_minutes || 0;
-        cm.peakCCU = Math.max(cm.peakCCU, isl.week_peak_ccu_max || 0);
-        cm.favorites += isl.week_favorites || 0;
-        cm.recommendations += isl.week_recommends || 0;
-        cm.maps++;
-
-        if (Array.isArray(isl.tags)) {
-          for (const tag of isl.tags) {
-            if (typeof tag === "string") tagsMap[tag] = (tagsMap[tag] || 0) + 1;
-          }
-        }
-      }
-      const categories = Object.values(categoriesMap).map((c: any) => ({
-        ...c,
-        title: c.category === "None" ? "Fortnite UGC" : c.category,
-        avgPlays: c.maps > 0 ? Math.round(c.totalPlays / c.maps) : 0,
-        value: c.totalPlays,
+      const mostUpdatedItems = (updatedRes.data || []).map((r: any) => ({
+        code: r.island_code, name: r.title || r.island_code, title: r.title,
+        creator: r.creator_code, category: r.category || "Fortnite UGC", value: r.week_plays || 0,
       }));
-      const topTags = Object.entries(tagsMap)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 20)
-        .map(([tag, count]) => ({ name: tag, tag, value: count, count }));
-
-      // Derived metrics
-      const enriched = islands.map((i: any) => {
-        const wp = i.week_plays || 0;
-        const wu = i.week_unique || 0;
-        const wf = i.week_favorites || 0;
-        const wr = i.week_recommends || 0;
-        const wm = i.week_minutes || 0;
-        const wmpp = i.week_minutes_per_player_avg || 0;
-        const wd1 = i.week_d1_avg || 0;
-        const wd7 = i.week_d7_avg || 0;
-        return {
-          ...i,
-          island_code: i.island_code,
-          playsPerPlayer: wu > 0 ? wp / wu : 0,
-          favPer100: wu > 0 ? (wf / wu) * 100 : 0,
-          recPer100: wu > 0 ? (wr / wu) * 100 : 0,
-          favToPlayRatio: wp > 0 ? wf / wp : 0,
-          recToPlayRatio: wp > 0 ? wr / wp : 0,
-          retentionAdjD1: wmpp * wd1,
-          retentionAdjD7: wmpp * wd7,
-          minutesPerFavorite: wf > 0 ? wm / wf : 0,
-          stickinessD1: wp * wmpp * wd1,
-          stickinessD7: wp * wmpp * wd7,
-        };
-      });
-
-      // Dynamic NLP Trend detection (replaces hardcoded TREND_KEYWORDS)
-      const trendingTopics = extractTrendingNgrams(enriched, 20);
-
-      // Top risers / decliners (by delta_plays)
-      const withDeltas = islandsWithDelta.filter((i) => i.delta_plays != null);
-      const topRisers = [...withDeltas]
-        .sort((a, b) => (b.delta_plays || 0) - (a.delta_plays || 0))
-        .slice(0, 10)
-        .filter((i) => (i.delta_plays || 0) > 0)
-        .map((i) => ({
-          code: i.island_code,
-          name: i.title || i.island_code,
-          title: i.title,
-          creator: i.creator_code,
-          category: i.category,
-          value: i.delta_plays || 0,
-          label: `+${(i.delta_plays || 0).toLocaleString()} plays`,
-        }));
-
-      const topDecliners = [...withDeltas]
-        .sort((a, b) => (a.delta_plays || 0) - (b.delta_plays || 0))
-        .slice(0, 10)
-        .filter((i) => (i.delta_plays || 0) < 0)
-        .map((i) => ({
-          code: i.island_code,
-          name: i.title || i.island_code,
-          title: i.title,
-          creator: i.creator_code,
-          category: i.category,
-          value: Math.abs(i.delta_plays || 0),
-          label: `${(i.delta_plays || 0).toLocaleString()} plays`,
-        }));
-
-      // Breakouts: were suppressed, now in top reported
-      const breakouts = revivedIslands
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 10);
-
-      // --- Histogram Builders ---
-      const buildHistogram = (arr: any[], key: string, buckets: number[]) => {
-        const hist: any[] = buckets.map((b, i) => ({
-          range: i === buckets.length - 1 ? `${b * 100}%+` : `${b * 100}-${buckets[i + 1] * 100}%`,
-          count: 0
-        }));
-        for (const item of arr) {
-          const val = Number(item[key] || 0);
-          for (let i = 0; i < buckets.length; i++) {
-            if (val >= buckets[i] && (i === buckets.length - 1 || val < buckets[i + 1])) {
-              hist[i].count++;
-              break;
-            }
-          }
-        }
-        return hist;
-      };
-
-      const retentionDistributionD1 = buildHistogram(enriched, "week_d1_avg", [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]);
-      const retentionDistributionD7 = buildHistogram(enriched, "week_d7_avg", [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]);
-      
-      const lowPerfBuckets = [0, 50, 100, 500];
-      const lowPerfHistogram = lowPerfBuckets.map((b, i) => ({
-        range: i === lowPerfBuckets.length - 1 ? `<${b}` : `<${lowPerfBuckets[i + 1]}`,
-        count: 0
-      }));
-      for (const i of failedIslands) {
-        const u = i.week_unique || 0;
-        if (u < 50) lowPerfHistogram[0].count++;
-        else if (u < 100) lowPerfHistogram[1].count++;
-        else if (u < 500) lowPerfHistogram[2].count++;
-      }
-
-      // --- New Rankings with Quality Filters ---
-      const fmtPct = (v: any) => `${(Number(v?.value ?? 0) * 100).toFixed(1)}%`;
-      const fmtNum = (v: any) => Number(v?.value ?? 0).toLocaleString();
-      const fmtMin = (v: any) => `${Number(v?.value ?? 0).toFixed(1)} min`;
-
-      // Build enriched map for O(1) lookups
-      const enrichedMap = new Map<string, any>();
-      for (const e of enriched) enrichedMap.set(e.island_code, e);
-      const ugcEnriched = ugcIslands.map((i: any) => ({ ...i, ...(enrichedMap.get(i.island_code) || {}) }));
 
       const computedRankings = {
-        topPeakCCU: topN(enriched, "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
-        topPeakCCU_UGC: topN(ugcEnriched, "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
-        topAvgPeakCCU: topN(enriched, "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
-        topAvgPeakCCU_UGC: topN(ugcEnriched, "week_peak_ccu_max", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
-        
-        topUniquePlayers: topN(enriched, "week_unique", 10, { label: fmtNum }),
-        topTotalPlays: topN(enriched, "week_plays", 10, { label: fmtNum }),
-        topMinutesPlayed: topN(enriched, "week_minutes", 10, { label: (v) => `${((v?.value ?? 0) / 1000000).toFixed(1)}M min` }),
-        
-        // Quality Filter: >= 1000 plays AND >= 500 unique players
-        topAvgMinutesPerPlayer: topN(enriched, "week_minutes_per_player_avg", 10, { 
-          filter: (i) => i.week_plays >= 1000 && i.week_unique >= 500,
-          label: fmtMin,
-          subtitle: (i) => `${i.week_plays?.toLocaleString()} plays`
-        }),
-
-        // Retention: >= 50 unique players (min sample)
-        topRetentionD1: topN(enriched, "week_d1_avg", 10, { 
-          filter: (i) => i.week_unique >= 50,
-          label: fmtPct 
-        }),
-        topRetentionD7: topN(enriched, "week_d7_avg", 10, { 
-          filter: (i) => i.week_unique >= 50,
-          label: fmtPct 
-        }),
-
-        topStickinessD1: topN(enriched, "stickinessD1", 10, { label: (i) => Number(i?.value ?? 0).toLocaleString() }),
-        topStickinessD7: topN(enriched, "stickinessD7", 10, { label: (i) => Number(i?.value ?? 0).toLocaleString() }),
-        topStickinessD1_UGC: topN(ugcEnriched, "stickinessD1", 10),
-        topStickinessD7_UGC: topN(ugcEnriched, "stickinessD7", 10),
-
-        topCreatorsByPlays: topN(creators, "totalPlays", 10, { label: fmtNum }),
-        topCreatorsByPlayers: topN(creators, "uniquePlayers", 10, { label: fmtNum }),
-        topCreatorsByMinutes: topN(creators, "minutesPlayed", 10, { label: (v) => `${(v.value / 1000000).toFixed(0)}M` }),
-        topCreatorsByCCU: topN(creators, "peakCCU", 10, { label: fmtNum }),
-        
-        topFavorites: topN(enriched, "week_favorites", 10, { label: fmtNum }),
-        topRecommendations: topN(enriched, "week_recommends", 10, { label: fmtNum }),
-        
-        // Efficiency: >= 1000 plays
-        topPlaysPerPlayer: topN(enriched, "playsPerPlayer", 10, { 
-          filter: (i) => i.week_plays >= 1000,
-          label: (v) => v.value.toFixed(2)
-        }),
-        topFavsPer100: topN(enriched, "favPer100", 10, { 
-          filter: (i) => i.week_unique >= 100 && i.week_favorites >= 10,
-          label: (v) => v.value.toFixed(1) + "%"
-        }),
-        topRecPer100: topN(enriched, "recPer100", 10, { 
-          filter: (i) => i.week_unique >= 100 && i.week_recommends >= 25,
-          label: (v) => v.value.toFixed(1) + "%"
-        }),
-        topFavsPerPlay: topN(enriched, "favToPlayRatio", 10, { filter: (i) => i.week_plays >= 1000, label: (v) => v.value.toFixed(4) }),
-        topRecsPerPlay: topN(enriched, "recToPlayRatio", 10, { filter: (i) => i.week_plays >= 1000, label: (v) => v.value.toFixed(4) }),
-
-        // Retention-Adjusted: >= 1000 plays & >= 500 uniques
-        topRetentionAdjD1: topN(enriched, "retentionAdjD1", 10, { 
-          filter: (i) => i.week_plays >= 1000 && i.week_unique >= 500,
-          label: (v) => v.value.toFixed(1)
-        }),
-        topRetentionAdjD7: topN(enriched, "retentionAdjD7", 10, { 
-          filter: (i) => i.week_plays >= 1000 && i.week_unique >= 500,
-          label: (v) => v.value.toFixed(1)
-        }),
-
-        topWeeklyGrowth: topRisers.slice(0, 10), // Placeholder for now, using risers
-
-        categoryShare: categories.sort((a: any, b: any) => b.totalPlays - a.totalPlays).slice(0, 15),
-        categoryPopularity: Object.fromEntries(
-          categories.sort((a: any, b: any) => b.maps - a.maps).slice(0, 10).map((c: any) => [c.title || c.category, c.maps])
-        ),
-        topCategoriesByPlays: topN(categories, "totalPlays", 10, { label: fmtNum }),
-        topTags,
-        trendingTopics,
-        
-        // Metadata rankings
-        topNewIslandsByPlays: topN((newIslandsByLaunchRows?.length ? newIslandsByLaunchRows : newIslandsReported) as any[], "week_plays", 10, { label: fmtNum, subtitle: (i) => i.creator_code }),
-        topNewIslandsByPlayers: topN((newIslandsByLaunchRows?.length ? newIslandsByLaunchRows : newIslandsReported) as any[], "week_unique", 10, { label: fmtNum }),
-        topNewIslandsByCCU: topN((newIslandsByLaunchRows?.length ? newIslandsByLaunchRows : newIslandsReported) as any[], "week_peak_ccu_max", 10, { label: fmtNum }),
-        mostUpdatedIslandsThisWeek: topN((mostUpdatedRows || []) as any[], "week_plays", 20, { label: fmtNum }),
-        
-        failedIslandsList: failedIslands
-          .sort((a: any, b: any) => (a.week_unique || 0) - (b.week_unique || 0))
-          .slice(0, 10)
-          .map((i: any) => ({
-            code: i.island_code,
-            title: i.title,
-            creator: i.creator_code,
-            category: i.category,
-            value: i.week_unique || 0,
-            name: i.title || i.island_code,
-            label: `${i.week_unique} players`
-          })),
-          
-        topRisers,
-        topDecliners,
-        breakouts,
-        revivedIslands: revivedIslands.sort((a, b) => b.value - a.value).slice(0, 10),
-        deadIslands: deadIslands.sort((a, b) => b.value - a.value).slice(0, 10),
-        
-        // Distributions
-        retentionDistributionD1,
-        retentionDistributionD7,
-        lowPerfHistogram
+        ...(rankingsRes.data || {}),
+        ...(creatorsRes.data || {}),
+        ...(categoriesRes.data || {}),
+        ...(distributionsRes.data || {}),
+        ...(trendingRes.data || {}),
+        ...(moversRes.data || {}),
+        topNewIslandsByPlays: topNewItems,
+        topNewIslandsByPlaysPublished: topNewItems,
+        topNewIslandsByCCU: topNewItems.sort((a: any, b: any) => (b.value || 0) - (a.value || 0)).slice(0, 10),
+        mostUpdatedIslandsThisWeek: mostUpdatedItems,
+        topAvgPeakCCU: (rankingsRes.data || {}).topPeakCCU || [],
+        topAvgPeakCCU_UGC: (rankingsRes.data || {}).topPeakCCU_UGC || [],
       };
 
-      // Update discover_islands cache (metadata only — metrics already written in metrics mode)
-      const cacheMetaUpserts = islands.map((i: any) => ({
-        island_code: i.island_code,
-        title: i.title,
-        creator_code: i.creator_code,
-        category: i.category,
-        tags: i.tags,
-        created_in: i.created_in,
-      }));
-      for (let i = 0; i < cacheMetaUpserts.length; i += 100) {
-        await supabase.from("discover_islands").upsert(cacheMetaUpserts.slice(i, i + 100), { onConflict: "island_code" });
-      }
-
+      // Update discover_reports
       await supabase.from("discover_reports").update({
         phase: "ai",
         progress_pct: 95,
         computed_rankings: computedRankings,
         platform_kpis: platformKPIs,
-        island_count: islands.length,
+        island_count: platformKPIs.totalIslands || 0,
         status: "analyzing",
       }).eq("id", reportId);
 
       // Create/update weekly_reports CMS entry as draft
-      const { data: reportMeta } = await supabase
-        .from("discover_reports")
-        .select("week_start, week_end, week_number, year, ai_narratives")
-        .eq("id", reportId)
-        .single();
+      const weekKey = `${reportInfo.year}-W${String(reportInfo.week_number).padStart(2, "0")}`;
+      const publicSlug = weekKey.toLowerCase();
+      const titlePublic = `Fortnite Discovery - Semana ${reportInfo.week_number}/${reportInfo.year}`;
 
-      if (reportMeta) {
-        const weekKey = `${reportMeta.year}-W${String(reportMeta.week_number).padStart(2, "0")}`;
-        const publicSlug = weekKey.toLowerCase();
-        const titlePublic = `Fortnite Discovery - Semana ${reportMeta.week_number}/${reportMeta.year}`;
+      const { data: weeklyRow, error: weeklyErr } = await supabase.from("weekly_reports").upsert({
+        discover_report_id: reportId,
+        week_key: weekKey,
+        date_from: reportInfo.week_start,
+        date_to: reportInfo.week_end,
+        status: "draft",
+        public_slug: publicSlug,
+        title_public: titlePublic,
+        kpis_json: platformKPIs,
+        rankings_json: computedRankings,
+      }, { onConflict: "public_slug" }).select("id").single();
 
-        const { data: weeklyRow, error: weeklyErr } = await supabase.from("weekly_reports").upsert({
-          discover_report_id: reportId,
-          week_key: weekKey,
-          date_from: reportMeta.week_start,
-          date_to: reportMeta.week_end,
-          status: "draft",
-          public_slug: publicSlug,
-          title_public: titlePublic,
-          kpis_json: platformKPIs,
-          rankings_json: computedRankings,
-          ai_sections_json: reportMeta.ai_narratives || {},
-        }, { onConflict: "public_slug" }).select("id").single();
-
-        console.log(`[finalize] Created/updated weekly_reports draft: ${weekKey}`);
-
-        if (!weeklyErr && weeklyRow?.id) {
-          // Best-effort enrichment: inject discovery exposure section into rankings_json.
-          const { error: expErr } = await supabase.functions.invoke("discover-exposure-report", {
-            body: { weeklyReportId: weeklyRow.id },
-          });
-          if (expErr) {
-            console.log(`[finalize] discovery exposure enrichment failed: ${expErr.message}`);
-          } else {
-            console.log(`[finalize] discovery exposure injected into weekly_reports: ${weekKey}`);
-          }
-
-          // Build minimal evidence packs for AI/UI (best-effort, avoids refetching Epic APIs).
-          // This is intentionally cheap and relies on existing helper RPCs + exposure injection.
-          try {
-            const { data: cov } = await supabase.rpc("report_link_metadata_coverage", { p_report_id: reportId });
-            const { data: hist } = await supabase.rpc("report_low_perf_histogram", { p_report_id: reportId });
-            const { data: expCov } = await supabase.rpc("report_exposure_coverage", { p_weekly_report_id: weeklyRow.id });
-            const weekStartDate = new Date(String(reportMeta.week_start)).toISOString().slice(0, 10);
-            const weekEndDate = new Date(String(reportMeta.week_end)).toISOString().slice(0, 10);
-            const { data: topPanels } = await supabase.rpc("discovery_exposure_top_panels", {
-              p_date_from: weekStartDate,
-              p_date_to: weekEndDate,
-              p_limit: 20,
-            });
-            const { data: breadth } = await supabase.rpc("discovery_exposure_breadth_top", {
-              p_date_from: weekStartDate,
-              p_date_to: weekEndDate,
-              p_limit: 20,
-            });
-
-            let collectionResolution: any = null;
-            try {
-              const rangeStart = `${weekStartDate}T00:00:00.000Z`;
-              const rangeEnd = `${weekEndDate}T00:00:00.000Z`;
-              const { data: collSegs } = await supabase
-                .from("discovery_exposure_rank_segments")
-                .select("link_code")
-                .eq("link_code_type", "collection")
-                .lt("start_ts", rangeEnd)
-                .or(`end_ts.is.null,end_ts.gt.${rangeStart}`)
-                .limit(50000);
-              const collectionsSeen = Array.from(new Set((collSegs || []).map((r: any) => String(r.link_code))));
-              let resolvedCollections = 0;
-              if (collectionsSeen.length) {
-                const { data: edges } = await supabase
-                  .from("discover_link_edges")
-                  .select("parent_link_code")
-                  .in("parent_link_code", collectionsSeen);
-                const withEdges = new Set((edges || []).map((r: any) => String(r.parent_link_code)));
-                resolvedCollections = withEdges.size;
-              }
-              collectionResolution = {
-                collectionsSeen: collectionsSeen.length,
-                resolvedCollections,
-                coveragePct: collectionsSeen.length > 0
-                  ? Number(((resolvedCollections / collectionsSeen.length) * 100).toFixed(1))
-                  : null,
-              };
-            } catch {
-              collectionResolution = null;
-            }
-
-            const evidence = {
-              dataQuality: {
-                baselineAvailable: Boolean(platformKPIs?.baselineAvailable),
-                metadataCoverage: cov || null,
-                exposureCoverage: expCov || null,
-                lowPerformanceHistogram: hist || null,
-              },
-              newIslands: {
-                topByPlays: computedRankings.topNewIslandsByPlaysPublished || computedRankings.topNewIslandsByPlays || [],
-                topByPlayers: computedRankings.topNewIslandsByPlayersPublished || computedRankings.topNewIslandsByPlayers || [],
-              },
-              updates: {
-                mostUpdated: computedRankings.mostUpdatedIslandsThisWeek || [],
-              },
-              exposure: {
-                topPanelsByMinutes: topPanels || [],
-                breadthTop: breadth || [],
-                collectionResolution,
-                // Deep details stay inside rankings_json.discoveryExposure
-                hasDiscoveryExposure: true,
-              },
-            };
-
-            const { data: wr2 } = await supabase
-              .from("weekly_reports")
-              .select("id,rankings_json")
-              .eq("id", weeklyRow.id)
-              .single();
-            if (wr2?.rankings_json) {
-              const merged = { ...(wr2.rankings_json || {}) };
-              (merged as any).evidence = evidence;
-              await supabase.from("weekly_reports").update({ rankings_json: merged }).eq("id", weeklyRow.id);
-            }
-          } catch (e) {
-            console.log(`[finalize] evidence packs build warning: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        } else if (weeklyErr) {
-          console.log(`[finalize] weekly_reports upsert select failed: ${weeklyErr.message}`);
+      if (!weeklyErr && weeklyRow?.id) {
+        // Best-effort: inject exposure data
+        try {
+          await supabase.functions.invoke("discover-exposure-report", { body: { weeklyReportId: weeklyRow.id } });
+        } catch (e) {
+          console.log(`[finalize] exposure enrichment skipped: ${e instanceof Error ? e.message : String(e)}`);
         }
+
+        // Build evidence packs
+        try {
+          const [covRes, histRes, expCovRes, topPanelsRes, breadthRes] = await Promise.all([
+            supabase.rpc("report_link_metadata_coverage", { p_report_id: reportId }),
+            supabase.rpc("report_low_perf_histogram", { p_report_id: reportId }),
+            supabase.rpc("report_exposure_coverage", { p_weekly_report_id: weeklyRow.id }),
+            supabase.rpc("discovery_exposure_top_panels", { p_date_from: weekStartDate, p_date_to: weekEndDate, p_limit: 20 }),
+            supabase.rpc("discovery_exposure_breadth_top", { p_date_from: weekStartDate, p_date_to: weekEndDate, p_limit: 20 }),
+          ]);
+
+          const evidence = {
+            dataQuality: {
+              baselineAvailable: Boolean(prevReportId),
+              metadataCoverage: covRes.data || null,
+              exposureCoverage: expCovRes.data || null,
+              lowPerformanceHistogram: histRes.data || null,
+            },
+            newIslands: { topByPlays: topNewItems.slice(0, 20), topByPlayers: topNewItems.slice(0, 20) },
+            updates: { mostUpdated: mostUpdatedItems.slice(0, 20) },
+            exposure: {
+              topPanelsByMinutes: topPanelsRes.data || [],
+              breadthTop: breadthRes.data || [],
+              hasDiscoveryExposure: true,
+            },
+          };
+
+          const { data: wr2 } = await supabase
+            .from("weekly_reports")
+            .select("id,rankings_json")
+            .eq("id", weeklyRow.id)
+            .single();
+          if (wr2?.rankings_json) {
+            const merged = { ...(wr2.rankings_json || {}), evidence };
+            await supabase.from("weekly_reports").update({ rankings_json: merged }).eq("id", weeklyRow.id);
+          }
+        } catch (e) {
+          console.log(`[finalize] evidence packs warning: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      } else if (weeklyErr) {
+        console.log(`[finalize] weekly_reports upsert failed: ${weeklyErr.message}`);
       }
 
-      console.log(`[finalize] Done. ${islands.length} reported, ${suppressedCount} suppressed, ${revivedIslands.length} revived, ${deadIslands.length} dead, ${topRisers.length} risers, ${topDecliners.length} decliners`);
+      // Update discover_islands table (metadata sync — best-effort, limited batch)
+      try {
+        const { data: metaRows } = await supabase
+          .from("discover_report_islands")
+          .select("island_code, title, creator_code, category, tags, created_in")
+          .eq("report_id", reportId)
+          .eq("status", "reported")
+          .not("title", "is", null)
+          .limit(5000);
+        if (metaRows?.length) {
+          for (let i = 0; i < metaRows.length; i += 500) {
+            await supabase.from("discover_islands").upsert(
+              metaRows.slice(i, i + 500).map((r: any) => ({
+                island_code: r.island_code, title: r.title, creator_code: r.creator_code,
+                category: r.category, tags: r.tags, created_in: r.created_in,
+              })),
+              { onConflict: "island_code" }
+            );
+          }
+        }
+      } catch (e) {
+        console.log(`[finalize] discover_islands sync warning: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      console.log(`[finalize] Done via SQL RPCs. KPIs: ${JSON.stringify({ totalIslands: platformKPIs.totalIslands, activeIslands: platformKPIs.activeIslands, newMaps: platformKPIs.newMapsThisWeekPublished })}`);
 
       return new Response(JSON.stringify({
         success: true, phase: "ai", progress_pct: 95,
-        reported_count: islands.length,
-        suppressed_count: suppressedCount,
-        revived_count: revivedIslands.length,
-        dead_count: deadIslands.length,
+        reported_count: platformKPIs.totalIslands,
+        kpis: platformKPIs,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
