@@ -1,0 +1,80 @@
+# Ralph Local Quickstart
+
+Use this to test Ralph locally before any deploy.
+
+## 1) Prerequisites
+
+Set environment variables in PowerShell:
+
+```powershell
+$env:SUPABASE_URL="https://<project-ref>.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+```
+
+Optional for LLM mode:
+
+```powershell
+$env:OPENAI_API_KEY="<openai-key>"
+# or
+$env:ANTHROPIC_API_KEY="<anthropic-key>"
+```
+
+## 2) Ensure DB foundation exists
+
+Apply migration:
+
+`supabase/migrations/20260216123000_ralph_ops_foundation.sql`
+
+Without this migration, runner RPC calls will fail.
+
+## 3) Run dry mode (no LLM cost)
+
+```powershell
+scripts\run-ralph-local-runner.bat --mode=qa --dry-run=true --scope=csv,lookup --max-iterations=3
+```
+
+Expected:
+- creates one row in `ralph_runs`
+- creates action/eval rows
+- finishes with `completed`
+- writes local summary under `scripts/_out/ralph_local_runner/run_*/ralph_local_runner_summary.json`
+
+## 4) Run with LLM (real loop)
+
+OpenAI:
+
+```powershell
+scripts\run-ralph-local-runner.bat --mode=qa --dry-run=false --llm-provider=openai --llm-model=gpt-4.1-mini --scope=csv,lookup --max-iterations=3
+```
+
+Anthropic:
+
+```powershell
+scripts\run-ralph-local-runner.bat --mode=qa --dry-run=false --llm-provider=anthropic --llm-model=claude-3-5-sonnet-latest --scope=csv,lookup --max-iterations=3
+```
+
+## 5) Optional quality gates
+
+Enable build/test gates:
+
+```powershell
+scripts\run-ralph-local-runner.bat --mode=dev --dry-run=true --gate-build=true --gate-test=true
+```
+
+Note: existing project build/test failures will mark run as `failed`.
+
+## 6) Useful checks
+
+```sql
+select * from public.ralph_runs order by started_at desc limit 5;
+select * from public.ralph_actions order by created_at desc limit 20;
+select * from public.ralph_eval_results order by created_at desc limit 20;
+select public.get_ralph_health(24);
+```
+
+## 7) Recommended first validation
+
+1. Run dry mode with 3 iterations.
+2. Verify rows + health JSON.
+3. Run one LLM mode run with 1-2 iterations.
+4. Decide if worth deploying orchestrator via Lovable.

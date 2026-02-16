@@ -134,6 +134,33 @@ Provides search functionality for islands by code.
 
 AI generation for weekly reports.
 
+## Ralph Operations Layer
+
+Ralph is used as an operations orchestrator (not as a model replacement).
+
+Core goals:
+
+1. Run controlled improvement loops for `dev`, `dataops`, `report`, and `qa`.
+2. Enforce hard gates (build/test/smoke/KPI thresholds).
+3. Persist audit and health telemetry for each run.
+
+Operational tables:
+
+- `ralph_runs`
+- `ralph_actions`
+- `ralph_eval_results`
+- `ralph_incidents`
+
+Operational RPCs:
+
+- `start_ralph_run`
+- `finish_ralph_run`
+- `record_ralph_action`
+- `record_ralph_eval`
+- `raise_ralph_incident`
+- `resolve_ralph_incident`
+- `get_ralph_health`
+
 ## Data Flow
 
 ### Collection Flow

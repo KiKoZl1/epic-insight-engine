@@ -21,6 +21,19 @@ Thank you for your interest in contributing to Epic Insight Engine.
    git checkout -b feature/your-feature-name
    ```
 
+## Branching Policy (Main-Only Teams)
+
+If your team currently only uses `main`, do not commit directly to it for feature or automation work.
+
+Recommended minimum:
+
+1. Keep `main` as protected release branch.
+2. Create short-lived branches per work item (`feat/*`, `fix/*`, `ops/*`).
+3. Merge by PR only after build/test/smoke gates pass.
+4. Tag releases after deploy.
+
+For Ralph/autonomous loops, branch isolation is mandatory to ensure rollback and safe promotion.
+
 ## Code Style
 
 ### TypeScript
