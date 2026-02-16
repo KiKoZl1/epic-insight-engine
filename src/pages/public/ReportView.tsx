@@ -12,7 +12,7 @@ import {
   ArrowLeft, Activity, Users, Play, Clock, TrendingUp, TrendingDown, Star, ThumbsUp,
   BarChart3, Crown, Map as MapIcon, Layers, Zap, Target, Tags, Sparkles,
   AlertTriangle, Flame, UserPlus, HeartPulse, Skull, Rocket, Copy, EyeOff,
-  Magnet
+  Magnet, Grid3X3, Anchor, RefreshCw, Baby, UsersRound, Wrench
 } from "lucide-react";
 import { ReportPageSkeleton } from "@/components/discover/ReportSkeleton";
 import {
@@ -412,14 +412,157 @@ export default function ReportView() {
       </div>
       <AiNarrative text={getNarrative(18)} />
 
+      <div className="border-t border-border my-8" />
+
+      {/* Section 19 (Exposure) */}
       {exposure?.profiles?.length > 0 && (
         <>
-          <div className="border-t border-border my-8" />
           <TooltipProvider>
-            <SectionHeader icon={EyeOff} number={19} title={t("reportSections.s14Title")} description={t("reportSections.s14Desc")} />
+            <SectionHeader icon={EyeOff} number={19} title={t("reportSections.s19Title")} description={t("reportSections.s19Desc")} />
             <DiscoveryExposureSection exposure={exposure} weeklyReportId={report.id} t={t} locale={locale} fmtDateTime={fmtDateTime} />
             <AiNarrative text={getNarrative(19)} />
           </TooltipProvider>
+        </>
+      )}
+
+      <div className="border-t border-border my-8" />
+
+      {/* Section 20 (Multi-Panel Presence) */}
+      {rankings.multiPanelPresence?.length > 0 && (
+        <>
+          <SectionHeader icon={Grid3X3} number={20} title={t("reportSections.s20Title")} description={t("reportSections.s20Desc")} />
+          <RankingTable
+            title={t("rankings.multiPanelPresence")}
+            icon={Grid3X3}
+            items={(rankings.multiPanelPresence || []).map((item: any) => ({
+              name: item.title || item.link_code,
+              code: item.link_code,
+              subtitle: `@${item.creator_code || "unknown"} · ${item.panels_distinct} panels`,
+              value: item.panels_distinct,
+              label: `${item.panels_distinct} panels`,
+            }))}
+          />
+          <AiNarrative text={getNarrative(20)} />
+          <div className="border-t border-border my-8" />
+        </>
+      )}
+
+      {/* Section 21 (Panel Loyalty) */}
+      {rankings.panelLoyalty?.length > 0 && (
+        <>
+          <SectionHeader icon={Anchor} number={21} title={t("reportSections.s21Title")} description={t("reportSections.s21Desc")} />
+          <RankingTable
+            title={t("rankings.panelLoyalty")}
+            icon={Anchor}
+            items={(rankings.panelLoyalty || []).map((item: any) => ({
+              name: item.title || item.link_code,
+              code: item.link_code,
+              subtitle: `@${item.creator_code || "unknown"} · ${item.panel_name}`,
+              value: item.total_minutes_in_panel,
+              label: `${fmt(item.total_minutes_in_panel)} min`,
+            }))}
+          />
+          <AiNarrative text={getNarrative(21)} />
+          <div className="border-t border-border my-8" />
+        </>
+      )}
+
+      {/* Section 22 (Most Updated Islands) */}
+      {(rankings.mostUpdatedIslandsThisWeek?.length > 0 || rankings.versionEnrichment) && (
+        <>
+          <SectionHeader icon={RefreshCw} number={22} title={t("reportSections.s22Title")} description={t("reportSections.s22Desc")} />
+          {rankings.versionEnrichment && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+              <KpiCard icon={RefreshCw} label={t("kpis.avgVersion")} value={String(rankings.versionEnrichment.avgVersion || "—")} />
+              <KpiCard icon={RefreshCw} label={t("kpis.v5PlusIslands")} value={fmt(rankings.versionEnrichment.islandsWithVersion5Plus)} />
+              <KpiCard icon={RefreshCw} label={t("kpis.totalWithVersion")} value={fmt(rankings.versionEnrichment.totalWithVersion)} />
+            </div>
+          )}
+          <RankingTable
+            title={t("rankings.mostUpdated")}
+            icon={RefreshCw}
+            items={(rankings.mostUpdatedIslandsThisWeek || []).slice(0, 10).map((item: any) => ({
+              name: item.name || item.title || item.code || item.island_code,
+              code: item.code || item.island_code,
+              subtitle: `@${item.creator || item.creator_code || "unknown"}`,
+              value: item.value || item.week_plays || 0,
+            }))}
+          />
+          <AiNarrative text={getNarrative(22)} />
+          <div className="border-t border-border my-8" />
+        </>
+      )}
+
+      {/* Section 23 (Rookie Creators) */}
+      {rankings.rookieCreators?.length > 0 && (
+        <>
+          <SectionHeader icon={Baby} number={23} title={t("reportSections.s23Title")} description={t("reportSections.s23Desc")} />
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+            <KpiCard icon={UserPlus} label={t("kpis.totalRookieCreators")} value={fmt(rankings.totalRookieCreators)} />
+            <KpiCard icon={MapIcon} label={t("kpis.totalRookieIslands")} value={fmt(rankings.totalRookieIslands)} />
+          </div>
+          <RankingTable
+            title={t("rankings.rookieCreators")}
+            icon={Baby}
+            items={(rankings.rookieCreators || []).map((item: any) => ({
+              name: item.creator_code,
+              subtitle: `${item.island_count} island${item.island_count > 1 ? "s" : ""} · Best: ${item.best_island_title || item.best_island_code}`,
+              value: item.total_plays || 0,
+            }))}
+          />
+          <AiNarrative text={getNarrative(23)} />
+          <div className="border-t border-border my-8" />
+        </>
+      )}
+
+      {/* Section 24 (Player Capacity Analysis) */}
+      {rankings.capacityAnalysis?.length > 0 && (
+        <>
+          <SectionHeader icon={UsersRound} number={24} title={t("reportSections.s24Title")} description={t("reportSections.s24Desc")} />
+          <RankingTable
+            title={t("rankings.capacityAnalysis")}
+            icon={UsersRound}
+            items={(rankings.capacityAnalysis || []).map((item: any) => ({
+              name: item.capacity_tier,
+              subtitle: `${fmt(item.island_count)} islands · D1: ${pct(item.avg_d1)} · D7: ${pct(item.avg_d7)}`,
+              value: Number(item.avg_plays) || 0,
+              label: `${fmt(Number(item.avg_plays))} avg plays`,
+            }))}
+          />
+          <AiNarrative text={getNarrative(24)} />
+          <div className="border-t border-border my-8" />
+        </>
+      )}
+
+      {/* Section 25 (UEFN vs FNC) */}
+      {rankings.toolSplit?.length > 0 && (
+        <>
+          <SectionHeader icon={Wrench} number={25} title={t("reportSections.s25Title")} description={t("reportSections.s25Desc")} />
+          <div className="grid md:grid-cols-2 gap-4 mb-4">
+            {(rankings.toolSplit || []).map((tool: any) => (
+              <Card key={tool.tool}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <Wrench className="h-4 w-4 text-primary" />
+                    {tool.tool}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div><span className="text-muted-foreground">Islands:</span> <strong>{fmt(tool.island_count)}</strong></div>
+                    <div><span className="text-muted-foreground">Total Plays:</span> <strong>{fmt(tool.total_plays)}</strong></div>
+                    <div><span className="text-muted-foreground">Avg Plays:</span> <strong>{fmt(Number(tool.avg_plays))}</strong></div>
+                    <div><span className="text-muted-foreground">Avg CCU:</span> <strong>{fmt(Number(tool.avg_peak_ccu))}</strong></div>
+                    <div><span className="text-muted-foreground">Avg D1:</span> <strong>{pct(Number(tool.avg_d1))}</strong></div>
+                    <div><span className="text-muted-foreground">Avg D7:</span> <strong>{pct(Number(tool.avg_d7))}</strong></div>
+                    <div><span className="text-muted-foreground">Avg Min/Player:</span> <strong>{Number(tool.avg_minutes_per_player).toFixed(1)} min</strong></div>
+                    <div><span className="text-muted-foreground">Favorites:</span> <strong>{fmt(tool.total_favorites)}</strong></div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <AiNarrative text={getNarrative(25)} />
         </>
       )}
     </div>

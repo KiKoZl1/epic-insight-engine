@@ -1808,12 +1808,24 @@ export type Database = {
         Args: { p_report_id: string }
         Returns: Json
       }
+      report_finalize_exposure_analysis: {
+        Args: { p_days?: number; p_report_id: string }
+        Returns: Json
+      }
       report_finalize_kpis: {
         Args: { p_prev_report_id?: string; p_report_id: string }
         Returns: Json
       }
       report_finalize_rankings: {
         Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_rookies: {
+        Args: { p_limit?: number; p_report_id: string }
+        Returns: Json
+      }
+      report_finalize_tool_split: {
+        Args: { p_report_id: string }
         Returns: Json
       }
       report_finalize_trending: {
