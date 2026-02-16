@@ -1,197 +1,142 @@
 
-# Command Center: Painel Admin Completo com Monitoramento em Tempo Real
 
-## Objetivo
+# Reforma Completa do Relatorio Semanal
 
-Substituir o `AdminOverview` atual (focado apenas no pipeline semanal de reports) por um **Command Center** completo que mostra todo o estado do sistema em tempo real, com auto-refresh automatico -- sem precisar dar F5.
+## Problemas Identificados
 
-## Estrutura do Painel (6 Secoes)
+### 1. Trending Topics usa keywords hardcoded
+O array `TREND_KEYWORDS` (linha 81-91 do collector) contem ~50 termos fixos. Nao faz NLP real nos titulos. "Brainrot" nao esta na lista, por isso nao aparece nos trends mesmo sendo dominante.
 
-O novo dashboard sera organizado em 6 secoes verticais:
+### 2. Valores sem unidade/contexto
+- Tags mostram "333" sem explicar que sao contagem de ilhas com aquela tag
+- Ratios mostram "5.37" ou "91.72" sem label explicativo (plays/player, favs/100 players)
+- Metricas derivadas nao tem legenda da formula
 
-### Secao 1: System Health Bar (topo fixo)
+### 3. Rankings sem filtros de qualidade
+- Top Avg Minutes/Player inclui ilhas com 5 jogadores (outliers estatisticos)
+- Top Favs Per 100 inclui ilhas com pouquissimos dados
+- Nao tem filtro minimo como o relatorio de referencia usa (>=1,000 plays, >=500 uniques, etc.)
 
-Barra horizontal com indicadores semaforo (bolinha verde/amarela/vermelha) para cada subsistema:
+### 4. Secoes faltando dados criticos
+- Low Performance (secao 8): so mostra contagem, sem top 10 piores, sem tags/generos
+- Trending Topics (secao 2): nao detecta temas emergentes reais
+- Most Updated: sem contagem de atualizacoes
+- Nenhuma secao de Stickiness (plays x minutes x retention)
+- Nenhuma separacao UGC vs Epic (global)
+- Sem distribuicao de retencao (histograma D1/D7)
+- Sem "creators que aparecem em multiplas listas"
+- Sem Peak CCU (avg vs max) como blocos separados
+- Sem Weekly Growth (breakouts multi-metrica)
 
-```text
-[Database: 822MB verde] [Exposure: Running verde] [Metadata: 99.1% verde] [Reports: idle cinza] [Crons: 7/7 verde]
-```
+### 5. A.I narra coisas que nao estao no relatorio
+A narrativa fala de "brainrot" mas os dados visuais nao refletem isso porque trending topics e hardcoded.
 
-- Cada indicador avalia automaticamente:
-  - **Database**: conexao OK = verde
-  - **Exposure**: pipeline status (running/paused/stopped) com uptime
-  - **Metadata**: % preenchido (verde >90%, amarelo >50%, vermelho <50%)
-  - **Reports**: fase do ultimo report (idle/running/done)
-  - **Crons**: todos ativos = verde, algum inativo = vermelho
-- Timestamp "Ultima atualizacao: HH:MM:SS" no canto superior direito
-
-### Secao 2: Database Census
-
-Grid de 8 cards com todos os numeros criticos do banco:
-
-```text
-+------------------+------------------+------------------+------------------+
-| Total Ilhas      | Reported         | Suprimidas       | Outro Status     |
-| 274,063          | 52,641 (19.2%)   | 221,339 (80.8%)  | 83               |
-+------------------+------------------+------------------+------------------+
-| Com Titulo Cache | Criadores Unicos | Reports Engine   | Weekly Reports   |
-| 206 (0.1%)       | 185              | 2                | 1 (0 publicados) |
-+------------------+------------------+------------------+------------------+
-```
-
-- Cada card com icone, label, valor grande e variacao percentual onde aplicavel
-- Cores condicionais (vermelho para "Com Titulo Cache" que esta em 0.1%)
-
-### Secao 3: Metadata Pipeline Monitor (secao mais detalhada)
-
-Card dedicado ao `discover_link_metadata` com 3 subsecoes:
-
-**3a. Barra de Progresso Principal**
-```text
-Metadata Preenchido: 1,742 / 1,758 (99.1%)
-[==================================================] 99.1%
-ETA: Concluido | Throughput: calculando...
-```
-
-- Barra de progresso grande e visivel
-- ETA dinamico calculado pela diferenca entre polls (10s)
-- Throughput em ilhas/min (media movel dos ultimos 3 polls)
-
-**3b. Grid de Status Detalhado (7 cards)**
-```text
-+------------------+------------------+------------------+------------------+
-| Total Enfileirado| Com Titulo       | Pendentes s/dados| Com Erro         |
-| 1,758            | 1,742 (verde)    | 14 (amarelo)     | 2 (vermelho)     |
-+------------------+------------------+------------------+------------------+
-| Due Agora        | Locked (proc.)   | Throughput       |
-| 0                | 0                | X ilhas/min      |
-+------------------+------------------+------------------+------------------+
-```
-
-**3c. Analise de Cobertura (Gap Analysis)**
-```text
-Ilhas no Cache:     274,063
-Metadata Enfileirado: 1,758  (0.6% do cache)
-Ilhas (island):     1,671
-Collections:        87
 ---
-GAP: 272,305 ilhas do cache sem metadata enfileirado
-```
 
-- Mostra claramente quantas ilhas do `discover_islands_cache` NAO estao no `discover_link_metadata`
-- Botao "Enfileirar Top 5K" para enfileirar as ilhas mais relevantes (por last_week_plays DESC)
+## Plano de Implementacao
 
-**3d. Tipos de Link (mini breakdown)**
-```text
-Islands: 1,671 | Collections: 87
-```
+### Fase 1: Corrigir a Engine de Dados (discover-collector finalize)
 
-### Secao 4: Exposure Pipeline (resumo compacto)
+**1.1 Trending Topics dinamico**
+- Remover `TREND_KEYWORDS` hardcoded
+- Implementar NLP real: tokenizar titulos, fazer n-gram analysis (1-gram e 2-gram), filtrar stopwords, ranquear por frequencia ponderada por plays
+- Output: top 20 termos mais presentes com contagem de ilhas, total plays, total players
 
-Resumo inline do que ja existe no AdminExposureHealth (sem duplicar tudo):
+**1.2 Filtros de qualidade nos rankings**
+- `topAvgMinutesPerPlayer`: filtrar >= 1,000 plays E >= 500 unique players
+- `topRetentionD1/D7`: filtrar >= 50 unique players E >= 3 dias de dados
+- `topPlaysPerPlayer`: filtrar >= 1,000 plays
+- `topFavsPer100`: filtrar >= 100 uniques E >= 10 favorites
+- `topRecPer100`: filtrar >= 100 uniques E >= 25 recommendations
+- `topFavsPerPlay/topRecsPerPlay`: filtrar >= 1,000 plays
+- `topRetentionAdjD1/D7`: filtrar >= 1,000 plays E >= 500 uniques
 
-```text
-+------------------+------------------+------------------+------------------+------------------+
-| Status           | Targets          | Ticks (24h)      | OK (24h)         | Failed (24h)     |
-| Running          | 8 ativos         | 68               | 66               | 2                |
-+------------------+------------------+------------------+------------------+------------------+
-```
+**1.3 Novos rankings**
+- `topPeakCCU_global` (inclui Epic) vs `topPeakCCU_UGC` (ja existe)
+- `topAvgPeakCCU_global` e `topAvgPeakCCU_UGC` (media CCU vs pico)
+- `topD1Stickiness`: plays x avgMinutes x D1 (global + UGC)
+- `topD7Stickiness`: plays x avgMinutes x D7 (global + UGC)
+- `topWeeklyGrowth`: ilhas com maior crescimento % multi-metrica (breakouts)
+- `topMinutesPerFavorite`: minutos gastos antes de favoritar (minutes/favorites)
+- `topCreatorsByFavorites`, `topCreatorsByRecommendations`
+- `retentionDistribution`: histograma de D1 e D7 por faixas (0-5%, 5-10%, ... 90-100%)
+- `lowPerfTopWorst`: top 10 piores ilhas com tags/categoria
+- `lowPerfHistogram`: distribuicao (<50, <100, <500 uniques)
+- `activeVsInactive`: contagem de mapas ativos vs inativos com delta WoW
+- `creatorsWithActiveVsTotal`: criadores com mapas ativos vs total
 
-- Link "Ver detalhes" para /admin/exposure
-- Pipeline status (running/paused/stopped) com badge colorido
+**1.4 Enriquecer items dos rankings existentes**
+Cada item de ranking passara a incluir:
+- `label`: texto formatado com unidade (ex: "520.97 min/player", "71.26%", "+28.25K%")
+- `subtitle`: contexto adicional (ex: tag, creator, category)
 
-### Secao 5: Cron Jobs Monitor
+### Fase 2: Atualizar o Frontend (ReportView.tsx)
 
-Tabela mostrando cada cron job registrado no banco:
+**2.1 Corrigir formatacao de valores**
+- RankingTable: usar `label` do item quando disponivel (ja suportado)
+- Adicionar tooltips explicando cada metrica
+- Seção de Tags: mostrar "333 ilhas" em vez de "333"
 
-```text
-| Job Name                                    | Schedule    | Status | Health   |
-|---------------------------------------------|-------------|--------|----------|
-| orchestrate-minute (Exposure)               | * * * * *   | Ativo  | OK verde |
-| discover-collector-orchestrate-minute        | * * * * *   | Ativo  | OK verde |
-| discover-links-metadata-orchestrate-minute   | * * * * *   | Ativo  | OK verde |
-| discover-exposure-intel-refresh-5min         | */5 * * * * | Ativo  | OK verde |
-| raw-cleanup-hourly                           | 5 * * * *   | Ativo  | OK verde |
-| maintenance-daily                            | 7 0 * * *   | Ativo  | OK verde |
-| discover-collector-weekly-v2                 | 0 6 * * 1   | Ativo  | OK verde |
-```
+**2.2 Reestruturar secoes**
 
-- Badge verde "Ativo" / vermelho "Inativo" baseado no campo `active` do `cron.job`
-- 7 crons no total (query real confirmada)
+O relatorio passara de 14 para ~20 secoes mais completas:
 
-### Secao 6: Weekly Report Pipeline (colapsavel)
+1. **Core Activity** (existente, expandido com active vs inactive, avg maps/creator)
+2. **Trending Topics** (corrigido com NLP dinamico)
+3. **Player Engagement Volume** (plays, CCU, duracao)
+4. **Peak CCU** (nova: global top 10, UGC top 10, avg peak CCU global, avg peak UGC)
+5. **New Islands of the Week** (existente)
+6. **Retention & Loyalty** (expandido com histograma D1/D7, thresholds >50%)
+7. **Creator Performance** (expandido com plays, uniques, minutes, CCU sum, D1, D7)
+8. **Map Quality** (com filtros minimos, minutes/favorite, favorites count, recommends count)
+9. **Low Performance** (expandido com top 10 piores, histograma, tags)
+10. **Plays per Player** (replay frequency, com filtro minimo)
+11. **Advocacy Metrics** (favs/100 players, recs/100 players, com filtros)
+12. **Efficiency/Conversion** (favs/play, recs/play, minutes/favorite)
+13. **Stickiness** (D1 + D7 stickiness global e UGC)
+14. **Retention-Adjusted Engagement** (existente, com filtros)
+15. **Category & Tags** (existente)
+16. **Weekly Growth / Breakouts** (multi-metrica, com % change)
+17. **Risers & Decliners** (existente)
+18. **Island Lifecycle** (existente)
+19. **Discovery Exposure** (existente)
 
-Todo o conteudo atual do `AdminOverview` (gerar report, progress bar, logs, telemetria de workers) preservado dentro de um `Collapsible`:
+**2.3 Melhorar componentes visuais**
+- `RankingTable`: exibir label com unidade, mostrar creator e categoria como subtitulo
+- Novo componente `DistributionHistogram` para retencao e low performance
+- Novo componente `MetricExplainer`: tooltip/popover que explica a formula da metrica
+- Cards de KPI: sempre incluir sufixo/unidade
 
-- Botao "Gerar Report"
-- Botao "Tick Agora"
-- Barra de progresso com fase (catalog/metrics/finalize/ai/done)
-- Grid de metricas (throughput, workers, 429s, suppressed, stale requeue)
-- Log de eventos em tempo real
-- Lista dos ultimos 5 reports
+### Fase 3: Atualizar o Prompt da IA
+
+**3.1 Expandir dados enviados para a IA**
+- Incluir todos os novos rankings no prompt
+- Incluir distribuicoes de retencao
+- Incluir stickiness scores
+- Incluir active vs inactive delta
+
+**3.2 Atualizar instrucoes**
+- Aumentar de 14 para ~20 secoes
+- Instruir a IA a sempre referenciar dados que estao visiveis no relatorio
+- Pedir explicacao de formulas e benchmarks quando relevante
 
 ---
 
 ## Detalhes Tecnicos
 
-### Arquivos Modificados
+### Arquivos que serao modificados:
 
-1. **`src/pages/admin/AdminOverview.tsx`** -- Reescrita completa
-2. **`src/components/AdminSidebar.tsx`** -- Renomear "Overview" para "Command Center", icone `Activity`
+1. `supabase/functions/discover-collector/index.ts` - Finalize function: novos rankings, NLP trending, filtros de qualidade
+2. `supabase/functions/discover-report-ai/index.ts` - Prompt expandido com novos dados e secoes
+3. `src/pages/public/ReportView.tsx` - Novas secoes, componentes, formatacao
+4. `src/components/discover/RankingTable.tsx` - Suporte a subtitle, melhor formatacao
+5. `src/components/discover/DistributionChart.tsx` - Novo componente para histogramas
+6. `src/i18n/locales/en.json` e `pt-BR.json` - Novas chaves de traducao
 
-### Auto-refresh Strategy
+### Migracao de dados
+- O relatorio w06 ja existente precisara ser reconstruido (rebuild) apos as mudancas para incluir os novos rankings
+- Nenhuma migracao SQL necessaria (os dados ja estao em `discover_report_islands`, so precisam ser calculados de forma diferente)
 
-- **Polling a cada 10s**: Database Census + Metadata Pipeline + Cron Jobs
-  - Queries leves usando `COUNT(*)` com filtros (todas com indices existentes)
-  - Nenhum full table scan
-- **Polling a cada 30s**: Exposure resumo (5 cards agregados)
-- **Pipeline semanal**: Polling a cada 5s (ja existente, preservado no Collapsible)
-- **Throughput do metadata**: Calculado no frontend
-  - Armazena `withTitle` anterior no `useRef`
-  - A cada poll: `(novo - anterior) / intervalo_em_minutos` = ilhas/min
-  - ETA: `(total - withTitle) / throughput` em minutos
-  - Se throughput = 0 (nada processando): mostra "Idle" em vez de "Infinito"
+### Impacto no tamanho do rankings_json
+O rankings_json crescera de ~45 chaves para ~60 chaves. O volume de dados por ranking nao muda (top 10-20 items cada). Impacto estimado: +20KB por relatorio, aceitavel.
 
-### Queries Utilizadas (todas leves)
-
-```text
-1. Database Census:
-   - SELECT COUNT(*), COUNT(*) FILTER (WHERE last_status='reported'), ... FROM discover_islands_cache
-   - SELECT COUNT(*), COUNT(*) FILTER (WHERE published_at IS NOT NULL) FROM weekly_reports
-   - SELECT COUNT(*) FROM discover_reports
-
-2. Metadata Pipeline:
-   - SELECT COUNT(*), COUNT(*) FILTER (WHERE title IS NOT NULL), 
-     COUNT(*) FILTER (WHERE last_error IS NOT NULL AND title IS NULL),
-     COUNT(*) FILTER (WHERE title IS NULL AND last_error IS NULL),
-     COUNT(*) FILTER (WHERE locked_at IS NOT NULL),
-     COUNT(*) FILTER (WHERE next_due_at <= now()),
-     COUNT(*) FILTER (WHERE link_code_type='island'),
-     COUNT(*) FILTER (WHERE link_code_type='collection')
-     FROM discover_link_metadata
-
-3. Exposure resumo:
-   - SELECT COUNT(*) FROM discovery_exposure_targets
-   - Ticks 24h: COUNT(*) de discovery_exposure_ticks com filtro de data
-
-4. Cron Jobs:
-   - SELECT jobname, schedule, active FROM cron.job
-```
-
-### Componentes Internos (dentro do AdminOverview)
-
-- `StatCard`: card com icone, label, valor grande, sublabel opcional, cor condicional
-- `HealthDot`: bolinha verde/amarela/vermelha com tooltip de status
-- `MetadataProgressSection`: barra de progresso + ETA + throughput + gap analysis
-- `CronTable`: tabela de cron jobs com badges de status
-
-### Sem Migrations Necessarias
-
-Todas as informacoes ja existem nas tabelas atuais. Nenhuma alteracao no banco.
-
-### Sidebar
-
-```text
-De: { title: "Overview", url: "/admin", icon: LayoutDashboard }
-Para: { title: "Command Center", url: "/admin", icon: Activity }
-```
