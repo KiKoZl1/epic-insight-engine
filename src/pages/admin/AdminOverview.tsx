@@ -12,7 +12,7 @@ import {
   Loader2, Sparkles, CheckCircle2, RefreshCcw, Gauge, Users, AlertTriangle,
   ShieldAlert, EyeOff, Activity, Database, Eye, FileText, Clock, ChevronDown,
   ChevronRight, Radio, Circle, ArrowRight, Zap, Hash, Layers, AlertCircle,
-  Timer, Lock, CalendarClock, BarChart3, Target, Search
+  Timer, Lock, CalendarClock, BarChart3, Target, Search, XCircle, Trash2
 } from "lucide-react";
 
 // ─── Formatters ───────────────────────────────────────────────
@@ -442,10 +442,13 @@ export default function AdminOverview() {
 
   const handleEnqueue = useCallback(async () => {
     setEnqueueLoading(true);
+    addLog("Enfileirar GAP: disparando...");
     try {
       const res = await supabase.functions.invoke("discover-enqueue-gap", { body: {} });
       if (res.error) throw new Error(res.error.message);
       const d = res.data || {};
+      if (d.error) throw new Error(d.error);
+      if (!d.success) throw new Error("Resposta inesperada da função");
       const inserted = Number(d.inserted || 0);
       const updated = Number(d.updated || 0);
       const submitted = Number(d.submitted || 0);
@@ -456,6 +459,7 @@ export default function AdminOverview() {
       setTimeout(() => setMetaFlash(false), 2000);
     } catch (e: any) {
       toast({ title: "Erro ao enfileirar", description: e.message, variant: "destructive" });
+      addLog(`Enfileirar ERRO: ${e.message}`);
     } finally {
       setEnqueueLoading(false);
     }
@@ -689,6 +693,39 @@ export default function AdminOverview() {
     await triggerOrchestrateTick(activeReportId);
     await fetchActiveReportState(activeReportId, false);
     await fetchReports();
+  };
+
+  const handleCancelReport = async (reportId: string) => {
+    const { error } = await supabase.from("discover_reports").update({
+      status: "cancelled",
+      phase: "done",
+    } as any).eq("id", reportId);
+    if (error) {
+      toast({ title: "Erro", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Report cancelado" });
+      if (activeReportId === reportId) {
+        setActiveReportId(null);
+        setGenerating(false);
+        setGenState(INITIAL_GEN);
+      }
+      await fetchReports();
+    }
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    const { error } = await supabase.from("discover_reports").delete().eq("id", reportId);
+    if (error) {
+      toast({ title: "Erro ao deletar", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Report deletado" });
+      if (activeReportId === reportId) {
+        setActiveReportId(null);
+        setGenerating(false);
+        setGenState(INITIAL_GEN);
+      }
+      await fetchReports();
+    }
   };
 
   // ─── Computed health statuses ─────────────────────────────
@@ -1170,22 +1207,33 @@ export default function AdminOverview() {
 
           <h3 className="font-display text-sm font-semibold">Últimos Reports</h3>
           <div className="space-y-2">
-            {reports.map((r) => (
-              <Card key={r.id}>
-                <CardContent className="flex items-center justify-between py-3">
-                  <div>
-                    <p className="font-display font-semibold text-sm">Semana {r.week_number}/{r.year}</p>
-                    <p className="text-[10px] text-muted-foreground">{r.phase} · {r.reported_count || 0} reported</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={r.status === "completed" ? "default" : "secondary"} className="text-[10px]">{r.status}</Badge>
-                    <Button variant="outline" size="sm" className="text-xs" asChild>
-                      <Link to="/admin/reports">Ver</Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            {reports.map((r) => {
+              const isRunning = ["collecting", "analyzing"].includes(r.status) || ["catalog", "metrics", "finalize", "ai"].includes(r.phase);
+              return (
+                <Card key={r.id}>
+                  <CardContent className="flex items-center justify-between py-3">
+                    <div>
+                      <p className="font-display font-semibold text-sm">Semana {r.week_number}/{r.year}</p>
+                      <p className="text-[10px] text-muted-foreground">{r.phase} · {r.reported_count || 0} reported</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={r.status === "completed" ? "default" : r.status === "cancelled" ? "destructive" : "secondary"} className="text-[10px]">{r.status}</Badge>
+                      {isRunning && (
+                        <Button variant="destructive" size="sm" className="text-xs" onClick={() => handleCancelReport(r.id)}>
+                          <XCircle className="h-3 w-3 mr-1" /> Cancelar
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteReport(r.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                      <Button variant="outline" size="sm" className="text-xs" asChild>
+                        <Link to="/admin/reports">Ver</Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </CollapsibleContent>
       </Collapsible>
