@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
@@ -56,7 +56,7 @@ export default function ProjectDetail() {
   const [histSearch, setHistSearch] = useState("");
   const [histStatus, setHistStatus] = useState<string>("all");
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!id) return;
     const [projRes, uploadsRes] = await Promise.all([
       supabase.from("projects").select("id, name, island_code, description").eq("id", id).single(),
@@ -70,9 +70,9 @@ export default function ProjectDetail() {
     }
     if (uploadsRes.data) setUploads(uploadsRes.data as any);
     setLoading(false);
-  };
+  }, [id]);
 
-  useEffect(() => { fetchData(); }, [id]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleSaveProject = async () => {
     if (!id) return;

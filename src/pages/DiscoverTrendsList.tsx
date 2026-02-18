@@ -165,11 +165,13 @@ export default function DiscoverTrendsList() {
           await supabase.functions.invoke("discover-report-ai", { body: { reportId } });
           addLog("✅ Relatório parcial salvo!");
           fetchReports();
-        } catch {}
+        } catch (finalErr: any) {
+          addLog(`⚠️ Falha ao finalizar parcial: ${finalErr?.message || "erro desconhecido"}`);
+        }
       }
       setTimeout(() => { setGenerating(false); setGenState(s => ({ ...s, phase: "idle" })); }, 3000);
     }
-  }, [addLog]);
+  }, [addLog, genState.metricsDone]);
 
   const fetchReports = async () => {
     const { data, error } = await supabase
@@ -186,12 +188,12 @@ export default function DiscoverTrendsList() {
   useEffect(() => {
     fetchReports().then((data) => {
       if (!data) return;
-      const inProgress = data.find((r: any) => r.status === "collecting" && r.phase && r.phase !== "done");
+      const inProgress = data.find((r: DiscoverReport) => r.status === "collecting" && r.phase && r.phase !== "done");
       if (inProgress) {
         resumeReport(inProgress);
       }
     });
-  }, []);
+  }, [resumeReport]);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });

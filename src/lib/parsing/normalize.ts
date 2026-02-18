@@ -77,7 +77,7 @@ export function normalizeDate(raw: string): string | null {
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
 
   // dd/mm/yyyy or dd-mm-yyyy (pt-BR)
-  const brMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  const brMatch = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (brMatch) {
     const [, d, m, y] = brMatch;
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
@@ -102,8 +102,8 @@ export function cleanEventName(raw: string): string {
 export function normalizeRow(
   row: Record<string, string>,
   dateColumns: string[] = ['date', 'data', 'Date', 'Data']
-): Record<string, any> {
-  const result: Record<string, any> = {};
+): Record<string, string | number | null> {
+  const result: Record<string, string | number | null> = {};
 
   for (const [key, value] of Object.entries(row)) {
     const normKey = normalizeColumnName(key);

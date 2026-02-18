@@ -20,6 +20,34 @@ function mustEnv(key: string): string {
   return v;
 }
 
+function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
+  const authHeader = (req.headers.get("Authorization") || "").trim();
+  const apiKeyHeader = (req.headers.get("apikey") || "").trim();
+  const authToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader;
+
+  const isServiceRoleJwt = (token: string): boolean => {
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) return false;
+      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const pad = b64.length % 4;
+      if (pad) b64 += "=".repeat(4 - pad);
+      const payload = JSON.parse(atob(b64));
+      return payload?.role === "service_role";
+    } catch {
+      return false;
+    }
+  };
+
+  if (serviceKey && (
+    authHeader === `Bearer ${serviceKey}` ||
+    authHeader === serviceKey ||
+    apiKeyHeader === serviceKey
+  )) return true;
+
+  return isServiceRoleJwt(authToken) || isServiceRoleJwt(apiKeyHeader);
+}
+
 function toUtcStart(dateStr: string): string {
   // dateStr is YYYY-MM-DD
   return new Date(`${dateStr}T00:00:00.000Z`).toISOString();
@@ -56,9 +84,8 @@ serve(async (req) => {
 
   try {
     // Auth guard: require service_role key
-    const authHeader = req.headers.get("Authorization") || "";
     const serviceKey = mustEnv("SUPABASE_SERVICE_ROLE_KEY");
-    if (authHeader !== `Bearer ${serviceKey}`) {
+    if (!isServiceRoleRequest(req, serviceKey)) {
       return json({ error: "Forbidden: service_role required" }, 403);
     }
 

@@ -12,7 +12,7 @@ import {
   Loader2, Sparkles, CheckCircle2, RefreshCcw, Gauge, Users, AlertTriangle,
   ShieldAlert, EyeOff, Activity, Database, Eye, FileText, Clock, ChevronDown,
   ChevronRight, Radio, Circle, ArrowRight, Zap, Hash, Layers, AlertCircle,
-  Timer, Lock, CalendarClock, BarChart3, Target, Search, XCircle, Trash2
+  Timer, Lock, CalendarClock, BarChart3, Target, Search, XCircle, Trash2, PauseCircle, PlayCircle
 } from "lucide-react";
 
 // ─── Formatters ───────────────────────────────────────────────
@@ -149,7 +149,7 @@ interface LookupPipelineData {
 }
 
 interface CronJob {
-  name: string; schedule: string; active: boolean;
+  jobid: number; name: string; schedule: string; active: boolean;
 }
 
 interface SystemAlert {
@@ -334,6 +334,8 @@ export default function AdminOverview() {
 
   // Crons
   const [crons, setCrons] = useState<CronJob[]>([]);
+  const [cronBulkAction, setCronBulkAction] = useState<"pause" | "resume" | null>(null);
+  const [cronRowBusy, setCronRowBusy] = useState<Record<string, boolean>>({});
 
   // System alerts (materialized in DB by orchestrator)
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
@@ -563,18 +565,77 @@ export default function AdminOverview() {
   }, [toast, addLog, fetchLinkGraph]);
 
   const fetchCrons = useCallback(async () => {
-    // We can't query cron.job directly from client, use hardcoded known crons with health inference
-    const knownCrons: CronJob[] = [
-      { name: "orchestrate-minute (Exposure)", schedule: "* * * * *", active: true },
-      { name: "discover-collector-orchestrate-min", schedule: "* * * * *", active: true },
-      { name: "discover-links-metadata-orchestrate-min", schedule: "* * * * *", active: true },
-      { name: "discover-exposure-intel-refresh-5min", schedule: "*/5 * * * *", active: true },
-      { name: "raw-cleanup-hourly", schedule: "5 * * * *", active: true },
-      { name: "maintenance-daily", schedule: "7 0 * * *", active: true },
-      { name: "discover-collector-weekly-v2", schedule: "0 6 * * 1", active: true },
-    ];
-    setCrons(knownCrons);
+    const { data, error } = await (supabase as any).rpc("admin_list_discover_crons");
+    if (error) return;
+    const rows = (data || []).map((r: any) => ({
+      jobid: Number(r.jobid || 0),
+      name: String(r.jobname || r.name || ""),
+      schedule: String(r.schedule || "-"),
+      active: Boolean(r.active),
+    })) as CronJob[];
+    setCrons(rows);
   }, []);
+
+  const handleSetCronActive = useCallback(async (jobname: string, active: boolean) => {
+    setCronRowBusy((p) => ({ ...p, [jobname]: true }));
+    try {
+      const { error } = await (supabase as any).rpc("admin_set_discover_cron_active", {
+        p_jobname: jobname,
+        p_active: active,
+      });
+      if (error) throw error;
+      toast({
+        title: active ? "Cron ativado" : "Cron pausado",
+        description: jobname,
+      });
+      addLog(`Cron ${jobname} -> ${active ? "active" : "paused"}`);
+      await fetchCrons();
+    } catch (e: any) {
+      toast({
+        title: "Falha ao atualizar cron",
+        description: e.message || "erro",
+        variant: "destructive",
+      });
+    } finally {
+      setCronRowBusy((p) => {
+        const n = { ...p };
+        delete n[jobname];
+        return n;
+      });
+    }
+  }, [toast, addLog, fetchCrons]);
+
+  const handlePauseAllCrons = useCallback(async () => {
+    setCronBulkAction("pause");
+    try {
+      const { error, data } = await (supabase as any).rpc("admin_pause_discover_crons");
+      if (error) throw error;
+      const updated = Number((data && (data.updated ?? data?.[0]?.updated)) || 0);
+      toast({ title: "Crons pausados", description: `${updated} job(s) atualizados.` });
+      addLog(`Pause all crons: ${updated} atualizados`);
+      await fetchCrons();
+    } catch (e: any) {
+      toast({ title: "Falha ao pausar crons", description: e.message || "erro", variant: "destructive" });
+    } finally {
+      setCronBulkAction(null);
+    }
+  }, [toast, addLog, fetchCrons]);
+
+  const handleResumeAllCrons = useCallback(async () => {
+    setCronBulkAction("resume");
+    try {
+      const { error, data } = await (supabase as any).rpc("admin_resume_discover_crons");
+      if (error) throw error;
+      const updated = Number((data && (data.updated ?? data?.[0]?.updated)) || 0);
+      toast({ title: "Crons reativados", description: `${updated} job(s) atualizados.` });
+      addLog(`Resume all crons: ${updated} atualizados`);
+      await fetchCrons();
+    } catch (e: any) {
+      toast({ title: "Falha ao reativar crons", description: e.message || "erro", variant: "destructive" });
+    } finally {
+      setCronBulkAction(null);
+    }
+  }, [toast, addLog, fetchCrons]);
 
   const fetchAlerts = useCallback(async () => {
     const { data, error } = await supabase
@@ -752,6 +813,14 @@ export default function AdminOverview() {
           ? "warn"
           : "ok";
   const reportHealth: HealthStatus = generating ? "ok" : genState.phase === "done" ? "ok" : "idle";
+  const cronActiveCount = crons.filter((c) => c.active).length;
+  const cronHealth: HealthStatus = crons.length === 0
+    ? "idle"
+    : cronActiveCount === crons.length
+      ? "ok"
+      : cronActiveCount === 0
+        ? "error"
+        : "warn";
 
   const metaPct = meta && meta.total > 0 ? (meta.withTitle / meta.total) * 100 : 0;
   const metaGap = (census?.totalIslands || 0) - (meta?.islands || 0);
@@ -802,7 +871,7 @@ export default function AdminOverview() {
             <div className="flex items-center gap-1.5"><HealthDot status={lookupHealth} label={`${lookup?.ok1h || 0}/${lookup?.calls1h || 0} lookup ok (1h)`} /><span className="text-muted-foreground">Lookup</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={reportHealth} label={generating ? "Em andamento" : "Idle"} /><span className="text-muted-foreground">Report</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={monitoringOffline ? "error" : alertStatus} label={monitoringOffline ? "Monitoramento offline!" : `${alertBad.length} alertas ativos`} /><span className="text-muted-foreground">Alertas</span></div>
-            <div className="flex items-center gap-1.5"><HealthDot status="ok" label="8/8 ativos" /><span className="text-muted-foreground">Crons</span></div>
+            <div className="flex items-center gap-1.5"><HealthDot status={cronHealth} label={`${cronActiveCount}/${crons.length || 0} ativos`} /><span className="text-muted-foreground">Crons</span></div>
           </div>
         </CardContent>
       </Card>
@@ -1110,9 +1179,33 @@ export default function AdminOverview() {
 
       {/* ── Section 5: Cron Jobs ───────────────────────────── */}
       <div>
-        <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-          <Timer className="h-4 w-4" /> Cron Jobs
-        </h2>
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            <Timer className="h-4 w-4" /> Cron Jobs
+          </h2>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs"
+              onClick={handlePauseAllCrons}
+              disabled={cronBulkAction !== null || crons.length === 0}
+            >
+              {cronBulkAction === "pause" ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <PauseCircle className="h-3 w-3 mr-1" />}
+              Pausar todos
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs"
+              onClick={handleResumeAllCrons}
+              disabled={cronBulkAction !== null || crons.length === 0}
+            >
+              {cronBulkAction === "resume" ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <PlayCircle className="h-3 w-3 mr-1" />}
+              Reativar todos
+            </Button>
+          </div>
+        </div>
         <Card>
           <CardContent className="py-3 px-0">
             <div className="overflow-x-auto">
@@ -1122,6 +1215,7 @@ export default function AdminOverview() {
                     <th className="text-left font-medium px-4 py-2">Job</th>
                     <th className="text-left font-medium px-4 py-2">Schedule</th>
                     <th className="text-left font-medium px-4 py-2">Status</th>
+                    <th className="text-left font-medium px-4 py-2">Ação</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1134,8 +1228,33 @@ export default function AdminOverview() {
                           {c.active ? "Ativo" : "Inativo"}
                         </Badge>
                       </td>
+                      <td className="px-4 py-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-[10px]"
+                          onClick={() => handleSetCronActive(c.name, !c.active)}
+                          disabled={cronBulkAction !== null || Boolean(cronRowBusy[c.name])}
+                        >
+                          {cronRowBusy[c.name] ? (
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          ) : c.active ? (
+                            <PauseCircle className="h-3 w-3 mr-1" />
+                          ) : (
+                            <PlayCircle className="h-3 w-3 mr-1" />
+                          )}
+                          {c.active ? "Pausar" : "Ativar"}
+                        </Button>
+                      </td>
                     </tr>
                   ))}
+                  {crons.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-4 text-center text-muted-foreground">
+                        Sem dados de cron disponíveis.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

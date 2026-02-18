@@ -1,0 +1,14 @@
+{
+  "started_at": "2026-02-18T13:08:55.626Z",
+  "ended_at": "2026-02-18T13:08:57.824Z",
+  "source_url": "https://oixhmbhhkgtpuekvtrzz.supabase.co",
+  "schema": "public",
+  "batch_size": 100,
+  "tables": [
+    {
+      "table": "public.user_roles",
+      "total": 1,
+      "file": "migration_artifacts\\exports_test\\public.user_roles.csv"
+    }
+  ]
+}

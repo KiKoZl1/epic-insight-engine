@@ -20,10 +20,12 @@ CREATE INDEX IF NOT EXISTS idx_discover_link_edges_last_seen ON public.discover_
 
 ALTER TABLE public.discover_link_edges ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "select_discover_link_edges_public" ON public.discover_link_edges;
 CREATE POLICY "select_discover_link_edges_public"
   ON public.discover_link_edges FOR SELECT
   USING (true);
 
+DROP POLICY IF EXISTS "all_discover_link_edges_service_role" ON public.discover_link_edges;
 CREATE POLICY "all_discover_link_edges_service_role"
   ON public.discover_link_edges FOR ALL
   USING ((auth.jwt() ->> 'role'::text) = 'service_role'::text)

@@ -47,13 +47,21 @@ Create the following files in the project root:
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+OPENAI_API_KEY=your-openai-key
+OPENAI_MODEL=gpt-4.1-mini
 ```
 
 #### `.env.local` (Optional - for development)
 ```env
 VITE_SUPABASE_URL=http://localhost:54321
 VITE_SUPABASE_PUBLISHABLE_KEY=your-local-anon-key
+SUPABASE_URL=http://localhost:54321
+SUPABASE_SERVICE_ROLE_KEY=your-local-service-role-key
 ```
+
+You can bootstrap these values from `.env.example`.
 
 ### Getting Supabase Credentials
 

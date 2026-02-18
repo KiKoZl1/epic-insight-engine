@@ -78,6 +78,34 @@ function avgRetentionCalc(retArr: any[] | undefined, key: string): number {
   return valid.reduce((s: number, r: any) => s + r[key], 0) / valid.length;
 }
 
+function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
+  const authHeader = (req.headers.get("Authorization") || "").trim();
+  const apiKeyHeader = (req.headers.get("apikey") || "").trim();
+  const authToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader;
+
+  const isServiceRoleJwt = (token: string): boolean => {
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) return false;
+      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const pad = b64.length % 4;
+      if (pad) b64 += "=".repeat(4 - pad);
+      const payload = JSON.parse(atob(b64));
+      return payload?.role === "service_role";
+    } catch {
+      return false;
+    }
+  };
+
+  if (serviceKey && (
+    authHeader === `Bearer ${serviceKey}` ||
+    authHeader === serviceKey ||
+    apiKeyHeader === serviceKey
+  )) return true;
+
+  return isServiceRoleJwt(authToken) || isServiceRoleJwt(apiKeyHeader);
+}
+
 // Dynamic NLP stopwords for trend detection (no more hardcoded keywords)
 const TREND_STOPWORDS = new Set([
   "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for", "is", "it",
@@ -609,10 +637,9 @@ serve(async (req) => {
 
   try {
     // Auth guard: require service_role key OR cron-safe mode (any auth) OR admin/editor user
-    const authHeader = req.headers.get("Authorization") || "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const sbUrl = Deno.env.get("SUPABASE_URL")!;
-    const isServiceRole = authHeader === `Bearer ${serviceKey}`;
+    const isServiceRole = isServiceRoleRequest(req, serviceKey);
 
     let body: any = {};
     try { body = await req.json(); } catch { /* empty body ok */ }

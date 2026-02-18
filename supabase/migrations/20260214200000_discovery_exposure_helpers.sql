@@ -298,7 +298,7 @@ AS $$
     WHERE c.creator_code IS NOT NULL
   )
   SELECT
-    d::date AS date,
+    t.date::date AS date,
     t.target_id,
     t.surface_name,
     t.panel_name,
@@ -306,7 +306,7 @@ AS $$
     COALESCE(cr.creators, 0)::int AS creators,
     COALESCE(col.collections, 0)::int AS collections
   FROM (
-    SELECT DISTINCT date AS d, target_id, surface_name, panel_name FROM base
+    SELECT DISTINCT date, target_id, surface_name, panel_name FROM base
   ) t
   LEFT JOIN (
     SELECT date, target_id, surface_name, panel_name, COUNT(DISTINCT link_code)::int AS maps

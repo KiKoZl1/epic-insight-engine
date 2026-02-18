@@ -5,6 +5,34 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
+  const authHeader = (req.headers.get("Authorization") || "").trim();
+  const apiKeyHeader = (req.headers.get("apikey") || "").trim();
+  const authToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader;
+
+  const isServiceRoleJwt = (token: string): boolean => {
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) return false;
+      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const pad = b64.length % 4;
+      if (pad) b64 += "=".repeat(4 - pad);
+      const payload = JSON.parse(atob(b64));
+      return payload?.role === "service_role";
+    } catch {
+      return false;
+    }
+  };
+
+  if (serviceKey && (
+    authHeader === `Bearer ${serviceKey}` ||
+    authHeader === serviceKey ||
+    apiKeyHeader === serviceKey
+  )) return true;
+
+  return isServiceRoleJwt(authToken) || isServiceRoleJwt(apiKeyHeader);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -15,8 +43,8 @@ Deno.serve(async (req) => {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
 
     // Dual auth: accept service_role key OR admin/editor JWT
-    const authHeader = req.headers.get("Authorization") || "";
-    if (authHeader === `Bearer ${serviceKey}`) {
+    const authHeader = (req.headers.get("Authorization") || "").trim();
+    if (isServiceRoleRequest(req, serviceKey)) {
       // service_role — OK
     } else {
       const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";

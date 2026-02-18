@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -69,7 +69,7 @@ export default function DiscoverTrendsReport() {
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchReport = () => {
+  const fetchReport = useCallback(() => {
     if (!reportId) return;
     supabase
       .from("discover_reports")
@@ -80,16 +80,18 @@ export default function DiscoverTrendsReport() {
         if (data) setReport(data as Report);
         setLoading(false);
       });
-  };
+  }, [reportId]);
 
-  useEffect(() => { fetchReport(); }, [reportId]);
+  useEffect(() => { fetchReport(); }, [fetchReport]);
+
+  const reportInProgress = report?.status !== "completed" && report?.phase !== "done";
 
   // Poll while report is in progress
   useEffect(() => {
-    if (!report || report.status === "completed" || report.phase === "done") return;
+    if (!reportInProgress) return;
     const interval = setInterval(fetchReport, 5000);
     return () => clearInterval(interval);
-  }, [report?.status, report?.phase, reportId]);
+  }, [fetchReport, reportInProgress]);
 
   if (loading) return <ReportPageSkeleton />;
 

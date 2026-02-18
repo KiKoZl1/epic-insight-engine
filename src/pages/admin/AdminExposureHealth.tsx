@@ -96,7 +96,7 @@ function derivePipelineStatus(targets: TargetRow[]): PipelineStatus {
   return "stopped";
 }
 
-function computeUptime(ticks: TickRow[], targets: TargetRow[]): number | null {
+function computeUptime(ticks: TickRow[], targets: TargetRow[], nowMs: number): number | null {
   // Uptime = time since the pipeline last had all targets OK without interruption
   // Find the most recent failed tick across all targets
   const okTargets = targets.filter((t) => t.last_ok_tick_at && t.last_status !== "paused");
@@ -116,11 +116,11 @@ function computeUptime(ticks: TickRow[], targets: TargetRow[]): number | null {
   if (lastFailed) {
     const failTs = new Date(lastFailed).getTime();
     if (failTs > firstOkAfterFail) return null; // currently broken
-    return Date.now() - failTs;
+    return nowMs - failTs;
   }
   
   // No failures ever - uptime since first ok
-  return Date.now() - firstOkAfterFail;
+  return nowMs - firstOkAfterFail;
 }
 
 export default function AdminExposureHealth() {
@@ -227,7 +227,7 @@ export default function AdminExposureHealth() {
   }, [targets]);
 
   const pipelineStatus = useMemo(() => derivePipelineStatus(targets), [targets]);
-  const uptime = useMemo(() => computeUptime(ticks, targets), [ticks, targets, now]);
+  const uptime = useMemo(() => computeUptime(ticks, targets, now), [ticks, targets, now]);
 
   const overall = useMemo(() => {
     const last24h = ticks.filter((t) => Date.now() - new Date(t.ts_start).getTime() <= 24 * 3600 * 1000);

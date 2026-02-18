@@ -1,4 +1,4 @@
-project_id = "turezrchetxoluznjtdi"
+project_id = "oixhmbhhkgtpuekvtrzz"
 
 [functions.ai-analyst]
 verify_jwt = false
@@ -32,3 +32,4 @@ verify_jwt = false
 
 [functions.discover-rails-resolver]
 verify_jwt = false
+

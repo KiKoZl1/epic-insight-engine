@@ -22,6 +22,8 @@ interface ZipUploaderProps {
   disabled?: boolean;
 }
 
+const MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024;
+
 export default function ZipUploader({ onComplete, disabled }: ZipUploaderProps) {
   const [dragOver, setDragOver] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -40,8 +42,6 @@ export default function ZipUploader({ onComplete, disabled }: ZipUploaderProps) 
   } | null>(null);
   const [logFilter, setLogFilter] = useState<"all" | "warning" | "error">("all");
   const fileRef = useRef<HTMLInputElement>(null);
-  const maxFileSizeBytes = 200 * 1024 * 1024;
-
   const handleFile = useCallback(
     async (file: File) => {
       setSelectedFileName(file.name);
@@ -53,11 +53,11 @@ export default function ZipUploader({ onComplete, disabled }: ZipUploaderProps) 
         return;
       }
 
-      if (file.size > maxFileSizeBytes) {
+      if (file.size > MAX_FILE_SIZE_BYTES) {
         setLogs([
           {
             type: "error",
-            message: `Arquivo muito grande (${formatBytes(file.size)}). Limite: ${formatBytes(maxFileSizeBytes)}.`,
+            message: `Arquivo muito grande (${formatBytes(file.size)}). Limite: ${formatBytes(MAX_FILE_SIZE_BYTES)}.`,
           },
         ]);
         return;
@@ -195,7 +195,7 @@ export default function ZipUploader({ onComplete, disabled }: ZipUploaderProps) 
             <Button variant="outline" size="sm" type="button" className="mx-auto">
               <Upload className="h-4 w-4 mr-2" /> Escolher Arquivo
             </Button>
-            <p className="text-[11px] text-muted-foreground mt-3">Aceita .zip ate {formatBytes(maxFileSizeBytes)}</p>
+            <p className="text-[11px] text-muted-foreground mt-3">Aceita .zip ate {formatBytes(MAX_FILE_SIZE_BYTES)}</p>
           </>
         )}
       </div>

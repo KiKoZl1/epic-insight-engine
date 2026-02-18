@@ -273,16 +273,19 @@ BEGIN
 
   -- Close presence segments not seen (+ exit events)
   CREATE TEMP TABLE _presence_closed ON COMMIT DROP AS
-  UPDATE public.discovery_exposure_presence_segments s
-  SET end_ts = s.last_seen_ts, closed_reason = 'absent_confirmed'
-  WHERE s.target_id = p_target_id AND s.end_ts IS NULL
-    AND NOT EXISTS (
-      SELECT 1 FROM _tick_incoming k
-      WHERE k.panel_name = s.panel_name AND k.link_code = s.link_code
-    )
-  RETURNING
-    s.surface_name, s.panel_name, s.panel_display_name, s.panel_type, s.feature_tags,
-    s.link_code, s.link_code_type, s.end_rank, s.ccu_end, s.last_seen_ts, s.closed_reason;
+  WITH closed AS (
+    UPDATE public.discovery_exposure_presence_segments s
+    SET end_ts = s.last_seen_ts, closed_reason = 'absent_confirmed'
+    WHERE s.target_id = p_target_id AND s.end_ts IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM _tick_incoming k
+        WHERE k.panel_name = s.panel_name AND k.link_code = s.link_code
+      )
+    RETURNING
+      s.surface_name, s.panel_name, s.panel_display_name, s.panel_type, s.feature_tags,
+      s.link_code, s.link_code_type, s.end_rank, s.ccu_end, s.last_seen_ts, s.closed_reason
+  )
+  SELECT * FROM closed;
 
   SELECT COUNT(*)::int INTO v_presence_closed FROM _presence_closed;
 

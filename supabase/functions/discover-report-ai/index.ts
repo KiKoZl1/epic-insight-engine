@@ -8,13 +8,40 @@ const corsHeaders = {
 
 const SUPPORTED_LOCALES = ["pt-BR"] as const;
 
+function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
+  const authHeader = (req.headers.get("Authorization") || "").trim();
+  const apiKeyHeader = (req.headers.get("apikey") || "").trim();
+  const authToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader;
+
+  const isServiceRoleJwt = (token: string): boolean => {
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) return false;
+      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const pad = b64.length % 4;
+      if (pad) b64 += "=".repeat(4 - pad);
+      const payload = JSON.parse(atob(b64));
+      return payload?.role === "service_role";
+    } catch {
+      return false;
+    }
+  };
+
+  if (serviceKey && (
+    authHeader === `Bearer ${serviceKey}` ||
+    authHeader === serviceKey ||
+    apiKeyHeader === serviceKey
+  )) return true;
+
+  return isServiceRoleJwt(authToken) || isServiceRoleJwt(apiKeyHeader);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const authHeader = req.headers.get("Authorization") || "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    if (authHeader !== `Bearer ${serviceKey}`) {
+    if (!isServiceRoleRequest(req, serviceKey)) {
       return new Response(JSON.stringify({ error: "Forbidden: service_role required" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -244,8 +271,10 @@ Sections:
 26. Category & Genre Movement - WoW category comparison. Reference categoryRisers and categoryDecliners data. Which categories/genres are growing or shrinking? Include plays delta, % change, island count changes. Identify emerging genres and declining ones. What does this mean for creators choosing what to build?
 27. Creator Movement & Ranking Changes - WoW creator comparison. Reference creatorRisers, creatorDecliners, and creatorRankClimbers data. Which creators gained/lost the most plays? Who climbed the most ranking positions? Include rank changes, play deltas, and % changes. Identify breakout creators and consistent performers.`;
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
+    const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-4.1-mini";
+    const OPENAI_TRANSLATION_MODEL = Deno.env.get("OPENAI_TRANSLATION_MODEL") || OPENAI_MODEL;
 
     // ── Step 1: Generate English narratives ──
     const sectionProps: Record<string, any> = {};
@@ -260,14 +289,14 @@ Sections:
       };
     }
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: OPENAI_MODEL,
         messages: [
           { role: "system", content: "You are an expert Fortnite Discovery ecosystem analyst. Always respond with valid JSON. Write detailed, data-driven narratives with specific numbers." },
           { role: "user", content: prompt },
@@ -320,8 +349,8 @@ Sections:
         };
 
         const [res1, res2] = await Promise.all([
-          translateNarrativesBatch(buildBatch(batch1Keys), locale, LOVABLE_API_KEY),
-          translateNarrativesBatch(buildBatch(batch2Keys), locale, LOVABLE_API_KEY),
+          translateNarrativesBatch(buildBatch(batch1Keys), locale, OPENAI_API_KEY, OPENAI_TRANSLATION_MODEL),
+          translateNarrativesBatch(buildBatch(batch2Keys), locale, OPENAI_API_KEY, OPENAI_TRANSLATION_MODEL),
         ]);
 
         const merged = { ...res1, ...res2 };
@@ -366,6 +395,7 @@ async function translateNarrativesBatch(
   toTranslate: Record<string, { title: string; narrative: string }>,
   targetLocale: string,
   apiKey: string,
+  model: string,
 ): Promise<Record<string, { title: string; narrative: string }>> {
   if (Object.keys(toTranslate).length === 0) return {};
 
@@ -383,14 +413,14 @@ async function translateNarrativesBatch(
     };
   }
 
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-lite",
+      model,
       messages: [
         {
           role: "system",

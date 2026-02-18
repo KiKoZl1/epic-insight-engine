@@ -32,23 +32,28 @@ CREATE INDEX IF NOT EXISTS idx_exposure_targets_locked_at
 
 ALTER TABLE public.discovery_exposure_targets ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admins/editors can view exposure targets" ON public.discovery_exposure_targets;
 CREATE POLICY "Admins/editors can view exposure targets"
   ON public.discovery_exposure_targets FOR SELECT
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'editor'));
+DROP POLICY IF EXISTS "Service role can insert exposure targets" ON public.discovery_exposure_targets;
 CREATE POLICY "Service role can insert exposure targets"
   ON public.discovery_exposure_targets FOR INSERT
   TO authenticated
   WITH CHECK ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
+DROP POLICY IF EXISTS "Service role can update exposure targets" ON public.discovery_exposure_targets;
 CREATE POLICY "Service role can update exposure targets"
   ON public.discovery_exposure_targets FOR UPDATE
   TO authenticated
   USING ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
+DROP POLICY IF EXISTS "Service role can delete exposure targets" ON public.discovery_exposure_targets;
 CREATE POLICY "Service role can delete exposure targets"
   ON public.discovery_exposure_targets FOR DELETE
   TO authenticated
   USING ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
 
+DROP TRIGGER IF EXISTS update_discovery_exposure_targets_updated_at ON public.discovery_exposure_targets;
 CREATE TRIGGER update_discovery_exposure_targets_updated_at
   BEFORE UPDATE ON public.discovery_exposure_targets
   FOR EACH ROW
@@ -93,18 +98,22 @@ CREATE INDEX IF NOT EXISTS idx_exposure_ticks_status_ts
 
 ALTER TABLE public.discovery_exposure_ticks ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admins/editors can view exposure ticks" ON public.discovery_exposure_ticks;
 CREATE POLICY "Admins/editors can view exposure ticks"
   ON public.discovery_exposure_ticks FOR SELECT
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'editor'));
+DROP POLICY IF EXISTS "Service role can insert exposure ticks" ON public.discovery_exposure_ticks;
 CREATE POLICY "Service role can insert exposure ticks"
   ON public.discovery_exposure_ticks FOR INSERT
   TO authenticated
   WITH CHECK ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
+DROP POLICY IF EXISTS "Service role can update exposure ticks" ON public.discovery_exposure_ticks;
 CREATE POLICY "Service role can update exposure ticks"
   ON public.discovery_exposure_ticks FOR UPDATE
   TO authenticated
   USING ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
+DROP POLICY IF EXISTS "Service role can delete exposure ticks" ON public.discovery_exposure_ticks;
 CREATE POLICY "Service role can delete exposure ticks"
   ON public.discovery_exposure_ticks FOR DELETE
   TO authenticated
@@ -142,14 +151,17 @@ CREATE INDEX IF NOT EXISTS idx_exposure_raw_link_ts
 
 ALTER TABLE public.discovery_exposure_entries_raw ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admins/editors can view exposure raw" ON public.discovery_exposure_entries_raw;
 CREATE POLICY "Admins/editors can view exposure raw"
   ON public.discovery_exposure_entries_raw FOR SELECT
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'editor'));
+DROP POLICY IF EXISTS "Service role can insert exposure raw" ON public.discovery_exposure_entries_raw;
 CREATE POLICY "Service role can insert exposure raw"
   ON public.discovery_exposure_entries_raw FOR INSERT
   TO authenticated
   WITH CHECK ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
+DROP POLICY IF EXISTS "Service role can delete exposure raw" ON public.discovery_exposure_entries_raw;
 CREATE POLICY "Service role can delete exposure raw"
   ON public.discovery_exposure_entries_raw FOR DELETE
   TO authenticated
@@ -195,19 +207,23 @@ CREATE INDEX IF NOT EXISTS idx_exposure_presence_end_ts
 
 ALTER TABLE public.discovery_exposure_presence_segments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admins/editors can view presence segments" ON public.discovery_exposure_presence_segments;
 CREATE POLICY "Admins/editors can view presence segments"
   ON public.discovery_exposure_presence_segments FOR SELECT
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'editor'));
+DROP POLICY IF EXISTS "Service role can insert presence segments" ON public.discovery_exposure_presence_segments;
 CREATE POLICY "Service role can insert presence segments"
   ON public.discovery_exposure_presence_segments FOR INSERT
   TO authenticated
   WITH CHECK ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
+DROP POLICY IF EXISTS "Service role can update presence segments" ON public.discovery_exposure_presence_segments;
 CREATE POLICY "Service role can update presence segments"
   ON public.discovery_exposure_presence_segments FOR UPDATE
   TO authenticated
   USING ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
 
+DROP TRIGGER IF EXISTS update_discovery_exposure_presence_segments_updated_at ON public.discovery_exposure_presence_segments;
 CREATE TRIGGER update_discovery_exposure_presence_segments_updated_at
   BEFORE UPDATE ON public.discovery_exposure_presence_segments
   FOR EACH ROW
@@ -250,19 +266,23 @@ CREATE INDEX IF NOT EXISTS idx_exposure_rank_end_ts
 
 ALTER TABLE public.discovery_exposure_rank_segments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admins/editors can view rank segments" ON public.discovery_exposure_rank_segments;
 CREATE POLICY "Admins/editors can view rank segments"
   ON public.discovery_exposure_rank_segments FOR SELECT
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'editor'));
+DROP POLICY IF EXISTS "Service role can insert rank segments" ON public.discovery_exposure_rank_segments;
 CREATE POLICY "Service role can insert rank segments"
   ON public.discovery_exposure_rank_segments FOR INSERT
   TO authenticated
   WITH CHECK ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
+DROP POLICY IF EXISTS "Service role can update rank segments" ON public.discovery_exposure_rank_segments;
 CREATE POLICY "Service role can update rank segments"
   ON public.discovery_exposure_rank_segments FOR UPDATE
   TO authenticated
   USING ((auth.jwt() ->> 'role'::text) = 'service_role'::text);
 
+DROP TRIGGER IF EXISTS update_discovery_exposure_rank_segments_updated_at ON public.discovery_exposure_rank_segments;
 CREATE TRIGGER update_discovery_exposure_rank_segments_updated_at
   BEFORE UPDATE ON public.discovery_exposure_rank_segments
   FOR EACH ROW
@@ -296,10 +316,12 @@ CREATE INDEX IF NOT EXISTS idx_exposure_rollup_link_date
 
 ALTER TABLE public.discovery_exposure_rollup_daily ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admins/editors can view exposure rollup" ON public.discovery_exposure_rollup_daily;
 CREATE POLICY "Admins/editors can view exposure rollup"
   ON public.discovery_exposure_rollup_daily FOR SELECT
   TO authenticated
   USING (public.has_role(auth.uid(), 'admin') OR public.has_role(auth.uid(), 'editor'));
+DROP POLICY IF EXISTS "Service role can upsert exposure rollup" ON public.discovery_exposure_rollup_daily;
 CREATE POLICY "Service role can upsert exposure rollup"
   ON public.discovery_exposure_rollup_daily FOR ALL
   TO authenticated

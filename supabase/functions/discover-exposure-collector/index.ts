@@ -66,6 +66,34 @@ function hasEnv(key: string): boolean {
   return Boolean(v && String(v).trim().length > 0);
 }
 
+function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
+  const authHeader = (req.headers.get("Authorization") || "").trim();
+  const apiKeyHeader = (req.headers.get("apikey") || "").trim();
+  const authToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader;
+
+  const isServiceRoleJwt = (token: string): boolean => {
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) return false;
+      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const pad = b64.length % 4;
+      if (pad) b64 += "=".repeat(4 - pad);
+      const payload = JSON.parse(atob(b64));
+      return payload?.role === "service_role";
+    } catch {
+      return false;
+    }
+  };
+
+  if (serviceKey && (
+    authHeader === `Bearer ${serviceKey}` ||
+    authHeader === serviceKey ||
+    apiKeyHeader === serviceKey
+  )) return true;
+
+  return isServiceRoleJwt(authToken) || isServiceRoleJwt(apiKeyHeader);
+}
+
 async function requireAdminOrEditor(req: Request, supabase: any) {
   const auth = req.headers.get("Authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
@@ -571,9 +599,8 @@ serve(async (req) => {
 
   try {
     // Auth guard: require service_role key OR cron-safe mode (any auth) OR admin/editor user
-    const authHeader = req.headers.get("Authorization") || "";
     const serviceKey = mustEnv("SUPABASE_SERVICE_ROLE_KEY");
-    const isServiceRole = authHeader === `Bearer ${serviceKey}`;
+    const isServiceRole = isServiceRoleRequest(req, serviceKey);
 
     const supabase = createClient(mustEnv("SUPABASE_URL"), serviceKey);
 

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -107,21 +107,21 @@ export default function DiscoverLive() {
   const [surface, setSurface] = useState<string>("CreativeDiscoverySurface_Frontend");
   const [panelName, setPanelName] = useState<string>("");
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     const [p, e, pol] = await Promise.all([
-      (supabase as any).from("discovery_public_premium_now").select("*").limit(5000),
-      (supabase as any).from("discovery_public_emerging_now").select("*").limit(5000),
-      (supabase as any).from("discovery_public_pollution_creators_now").select("*").limit(2000),
+      supabase.from("discovery_public_premium_now").select("*").limit(5000),
+      supabase.from("discovery_public_emerging_now").select("*").limit(5000),
+      supabase.from("discovery_public_pollution_creators_now").select("*").limit(2000),
     ]);
 
     if (p.data) setPremium(p.data as PremiumRow[]);
     if (e.data) setEmerging(e.data as EmergingRow[]);
     if (pol.data) setPollution(pol.data as PollutionRow[]);
     setLoading(false);
-  }
+  }, []);
 
-  async function loadRails() {
+  const loadRails = useCallback(async () => {
     setRailsLoading(true);
     setRailsError(null);
 
@@ -143,22 +143,23 @@ export default function DiscoverLive() {
       return;
     }
 
-    const rows = Array.isArray((data as any)?.rails) ? ((data as any).rails as Rail[]) : [];
+    const railsPayload = data as { rails?: Rail[] } | null;
+    const rows = Array.isArray(railsPayload?.rails) ? railsPayload.rails : [];
     setRails(rows);
     setRailsLoading(false);
-  }
+  }, [region, surface]);
 
   useEffect(() => {
     load();
     const timer = setInterval(load, 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     loadRails();
     const timer = setInterval(loadRails, 60_000);
     return () => clearInterval(timer);
-  }, [region, surface]);
+  }, [loadRails]);
 
   const asOf = useMemo(() => {
     const ts = premium[0]?.as_of || emerging[0]?.as_of || pollution[0]?.as_of || null;
@@ -440,3 +441,4 @@ export default function DiscoverLive() {
     </div>
   );
 }
+
