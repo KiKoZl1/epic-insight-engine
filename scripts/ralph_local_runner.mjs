@@ -56,6 +56,7 @@ function parseArgs(argv) {
     requireNonMainBranch: true,
     outDir: path.join(process.cwd(), "scripts", "_out", "ralph_local_runner"),
     prompt: "Improve reliability and product quality for CSV and Island Lookup.",
+    promptFile: "",
   };
 
   for (const raw of argv) {
@@ -77,6 +78,7 @@ function parseArgs(argv) {
     else if (raw.startsWith("--require-non-main-branch=")) args.requireNonMainBranch = asBool(raw.slice("--require-non-main-branch=".length), true);
     else if (raw.startsWith("--out-dir=")) args.outDir = raw.slice("--out-dir=".length);
     else if (raw.startsWith("--prompt=")) args.prompt = raw.slice("--prompt=".length);
+    else if (raw.startsWith("--prompt-file=")) args.promptFile = raw.slice("--prompt-file=".length);
   }
 
   if (!VALID_MODES.has(args.mode)) args.mode = "custom";
@@ -88,6 +90,36 @@ function parseArgs(argv) {
   if (!Number.isFinite(args.editMaxFiles) || args.editMaxFiles < 1) args.editMaxFiles = 2;
 
   return args;
+}
+
+function loadDotEnvIfPresent(filePath = path.join(process.cwd(), ".env")) {
+  if (!fs.existsSync(filePath)) return;
+  const text = fs.readFileSync(filePath, "utf8");
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!m) continue;
+    const key = m[1];
+    let val = m[2] ?? "";
+    if ((val.startsWith("\"") && val.endsWith("\"")) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = val;
+  }
+}
+
+function resolvePrompt(args) {
+  const file = String(args.promptFile || "").trim();
+  if (!file) return args.prompt;
+  const abs = path.resolve(file);
+  if (!fs.existsSync(abs)) return args.prompt;
+  try {
+    const txt = fs.readFileSync(abs, "utf8").trim();
+    return txt || args.prompt;
+  } catch {
+    return args.prompt;
+  }
 }
 
 function getEnv(name, fallback = "") {
@@ -134,21 +166,72 @@ function buildPlanPrompt(args, iteration) {
   ].join("\n");
 }
 
-function buildPatchPrompt(args, iteration, planText, repoContext) {
+function getCandidateFiles(scope) {
+  const wanted = new Set(scope.map((s) => String(s).toLowerCase()));
+  const candidates = [];
+  const pushIfExists = (p) => {
+    if (fs.existsSync(p)) candidates.push(normalizePath(p));
+  };
+
+  if (wanted.has("lookup")) {
+    pushIfExists("src/pages/IslandLookup.tsx");
+  }
+  if (wanted.has("csv")) {
+    pushIfExists("src/components/ZipUploader.tsx");
+    pushIfExists("src/lib/parsing/zipProcessor.ts");
+    pushIfExists("src/lib/parsing/metricsEngine.ts");
+    pushIfExists("src/lib/parsing/normalize.ts");
+  }
+
+  // Always keep at least one fallback file for deterministic behavior
+  if (candidates.length === 0) {
+    pushIfExists("src/pages/IslandLookup.tsx");
+    pushIfExists("src/components/ZipUploader.tsx");
+  }
+  return Array.from(new Set(candidates));
+}
+
+function readCandidateContext(paths, maxCharsPerFile = 5000) {
+  const blocks = [];
+  for (const p of paths) {
+    const abs = path.resolve(p);
+    if (!fs.existsSync(abs)) continue;
+    let text = "";
+    try {
+      text = fs.readFileSync(abs, "utf8");
+    } catch {
+      continue;
+    }
+    if (text.length > maxCharsPerFile) {
+      text = `${text.slice(0, maxCharsPerFile)}\n/* ...truncated... */`;
+    }
+    blocks.push(`FILE: ${normalizePath(p)}\n-----\n${text}\n-----`);
+  }
+  return blocks.join("\n\n");
+}
+
+function buildOpsPrompt(args, iteration, planText, candidateFiles, candidateContext) {
   return [
-    "You are generating a safe git unified diff patch for a React + TypeScript app.",
+    "You are generating SAFE code edit operations for a React + TypeScript repository.",
     `Iteration ${iteration}/${args.maxIterations}`,
     `Goal: ${args.prompt}`,
     `Plan summary: ${planText || "n/a"}`,
     `Allowed paths prefixes: ${args.editAllowlist.join(", ")}`,
-    `Max touched files: ${args.editMaxFiles}`,
-    "Hard rules:",
-    "- Output ONLY unified diff patch text (no markdown fences, no explanations).",
-    "- Do not touch lock files, env files, migrations, or secrets.",
-    "- Keep changes small and coherent for one improvement step.",
-    "- If no safe change is possible, output empty string.",
-    "Repository context:",
-    repoContext,
+    `Max files this iteration: ${args.editMaxFiles}`,
+    "You must return STRICT JSON only (no markdown):",
+    '{"edits":[{"path":"src/...","find":"exact snippet","replace":"new snippet","reason":"short reason"}]}',
+    "Rules:",
+    "- path MUST be one of candidate files listed below.",
+    "- use exact find snippet from current file content (multiline allowed).",
+    "- keep changes small and coherent.",
+    "- do not create new files in this mode.",
+    "- if no safe edit, return {\"edits\":[]}.",
+    "",
+    "Candidate files:",
+    candidateFiles.map((p) => `- ${p}`).join("\n"),
+    "",
+    "Current file contents (truncated):",
+    candidateContext,
   ].join("\n");
 }
 
@@ -169,25 +252,19 @@ function extractJsonObject(text) {
   }
 }
 
-function extractPatch(text) {
-  const t = String(text || "");
-  if (!t.trim()) return "";
-  const fenced = t.match(/```(?:diff)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) return fenced[1].trim();
-  const idx = t.indexOf("diff --git ");
-  if (idx >= 0) return t.slice(idx).trim();
-  if (/^\s*---\s+a\//m.test(t) && /^\s*\+\+\+\s+b\//m.test(t)) return t.trim();
-  return t.trim();
-}
-
-function parseTouchedPathsFromPatch(patch) {
-  const out = new Set();
-  for (const line of String(patch || "").split(/\r?\n/)) {
-    if (line.startsWith("+++ b/")) out.add(normalizePath(line.slice("+++ b/".length)));
-    if (line.startsWith("--- a/")) out.add(normalizePath(line.slice("--- a/".length)));
-  }
-  out.delete("/dev/null");
-  return Array.from(out).filter(Boolean);
+function parseEditOps(rawText) {
+  const parsed = extractJsonObject(rawText);
+  if (!parsed) return [];
+  const edits = Array.isArray(parsed) ? parsed : parsed.edits;
+  if (!Array.isArray(edits)) return [];
+  return edits
+    .map((e) => ({
+      path: normalizePath(e?.path),
+      find: String(e?.find ?? ""),
+      replace: String(e?.replace ?? ""),
+      reason: String(e?.reason ?? ""),
+    }))
+    .filter((e) => e.path && e.find);
 }
 
 function pathAllowed(p, allowlist) {
@@ -200,8 +277,8 @@ function pathAllowed(p, allowlist) {
   });
 }
 
-function validatePatchScope(patch, args) {
-  const touched = parseTouchedPathsFromPatch(patch);
+function validateOpsScope(ops, args) {
+  const touched = Array.from(new Set(ops.map((o) => normalizePath(o.path))));
   const disallowed = touched.filter((p) => !pathAllowed(p, args.editAllowlist));
   return {
     touched,
@@ -336,7 +413,9 @@ async function raiseIncident(supabase, runId, severity, type, message, metadata 
 }
 
 async function main() {
+  loadDotEnvIfPresent();
   const args = parseArgs(process.argv.slice(2));
+  args.prompt = resolvePrompt(args);
   const supabaseUrl = mustEnv("SUPABASE_URL", getEnv("VITE_SUPABASE_URL", ""));
   const serviceRole = mustEnv("SUPABASE_SERVICE_ROLE_KEY");
   const supabase = createClient(supabaseUrl, serviceRole, { auth: { persistSession: false } });
@@ -388,6 +467,8 @@ async function main() {
   let appliedPatches = 0;
   const startedAt = Date.now();
   const repoContext = collectRepoContext();
+  const candidateFiles = getCandidateFiles(args.scope).filter((p) => pathAllowed(p, args.editAllowlist));
+  const candidateContext = readCandidateContext(candidateFiles);
 
   try {
     for (let i = 1; i <= args.maxIterations; i++) {
@@ -440,25 +521,40 @@ async function main() {
       }
 
       if (!args.dryRun && args.editMode !== "off") {
-        const patchPrompt = buildPatchPrompt(args, i, llmPlan.text.slice(0, 1200), repoContext);
-        const llmPatch = await callLlm(args.llmProvider, args.llmModel, patchPrompt);
-        const patchText = extractPatch(llmPatch.text);
-        const patchFile = path.join(patchDir, `iter_${String(i).padStart(2, "0")}.patch`);
+        const opsPrompt = buildOpsPrompt(args, i, llmPlan.text.slice(0, 1200), candidateFiles, candidateContext || repoContext);
+        const llmOps = await callLlm(args.llmProvider, args.llmModel, opsPrompt);
+        const ops = parseEditOps(llmOps.text);
+        const opsFile = path.join(patchDir, `iter_${String(i).padStart(2, "0")}_ops.json`);
+        await fsp.writeFile(
+          opsFile,
+          JSON.stringify(
+            {
+              iteration: i,
+              provider: llmOps.provider,
+              model: llmOps.model,
+              raw_preview: llmOps.text.slice(0, 1500),
+              ops,
+            },
+            null,
+            2
+          ),
+          "utf8"
+        );
 
-        if (!patchText) {
-          localLog.patches.push({ iteration: i, status: "empty", file: patchFile });
+        if (ops.length === 0) {
+          localLog.patches.push({ iteration: i, status: "empty", file: opsFile, touched: [] });
           await recordAction(supabase, runId, {
             stepIndex: i,
             phase: "patch",
-            toolName: `${llmPatch.provider}:${llmPatch.model}`,
-            target: "patch",
+            toolName: `${llmOps.provider}:${llmOps.model}`,
+            target: "ops",
             status: "skipped",
-            latencyMs: 30,
-            details: { reason: "empty_patch" },
+            latencyMs: 20,
+            details: { reason: "empty_ops", ops_file: opsFile },
           });
           await recordEval(supabase, runId, {
             suite: "patch",
-            metric: "patch_non_empty",
+            metric: "ops_non_empty",
             value: 0,
             threshold: 1,
             pass: false,
@@ -467,12 +563,11 @@ async function main() {
           continue;
         }
 
-        await fsp.writeFile(patchFile, `${patchText}\n`, "utf8");
-        const scopeCheck = validatePatchScope(patchText, args);
+        const scopeCheck = validateOpsScope(ops, args);
         localLog.patches.push({
           iteration: i,
           status: "proposed",
-          file: patchFile,
+          file: opsFile,
           touched: scopeCheck.touched,
           disallowed: scopeCheck.disallowed,
           withinFileLimit: scopeCheck.withinFileLimit,
@@ -481,15 +576,15 @@ async function main() {
         await recordAction(supabase, runId, {
           stepIndex: i,
           phase: "patch",
-          toolName: `${llmPatch.provider}:${llmPatch.model}`,
-          target: "patch_proposal",
+          toolName: `${llmOps.provider}:${llmOps.model}`,
+          target: "ops_proposal",
           status: scopeCheck.ok ? "ok" : "warn",
-          latencyMs: 40,
-          details: { touched: scopeCheck.touched, disallowed: scopeCheck.disallowed, patch_file: patchFile },
+          latencyMs: 35,
+          details: { touched: scopeCheck.touched, disallowed: scopeCheck.disallowed, ops_file: opsFile },
         });
         await recordEval(supabase, runId, {
           suite: "patch",
-          metric: "patch_scope_allowed",
+          metric: "ops_scope_allowed",
           value: scopeCheck.touchedCount,
           threshold: args.editMaxFiles,
           pass: scopeCheck.ok,
@@ -501,63 +596,69 @@ async function main() {
             supabase,
             runId,
             "warn",
-            "patch_scope_violation",
-            `Iteration ${i} patch violated allowlist or file limit`,
+            "ops_scope_violation",
+            `Iteration ${i} ops violated allowlist or file limit`,
             { touched: scopeCheck.touched, disallowed: scopeCheck.disallowed, limit: args.editMaxFiles }
           );
           continue;
         }
 
         if (args.editMode === "apply") {
-          const patchAbs = path.resolve(patchFile).replace(/\\/g, "/");
-          const checkRes = runShell(`git apply --check --whitespace=nowarn "${patchAbs}"`);
-          if (checkRes.code !== 0) {
-            await recordAction(supabase, runId, {
-              stepIndex: i,
-              phase: "apply",
-              toolName: "git",
-              target: "git apply --check",
-              status: "error",
-              latencyMs: checkRes.latencyMs,
-              details: { stdout: checkRes.stdout, stderr: checkRes.stderr },
-            });
-            await raiseIncident(supabase, runId, "error", "patch_apply_check_failed", "git apply --check failed", {
-              iteration: i,
-              patch_file: patchFile,
-              stderr: checkRes.stderr,
-            });
-            continue;
+          let appliedThisIter = 0;
+          const applyErrors = [];
+          for (const op of ops.slice(0, args.editMaxFiles)) {
+            const opPath = normalizePath(op.path);
+            if (!pathAllowed(opPath, args.editAllowlist)) {
+              applyErrors.push({ path: opPath, reason: "path_not_allowed" });
+              continue;
+            }
+            const abs = path.resolve(opPath);
+            if (!fs.existsSync(abs)) {
+              applyErrors.push({ path: opPath, reason: "file_not_found" });
+              continue;
+            }
+            const before = fs.readFileSync(abs, "utf8");
+            const idx = before.indexOf(op.find);
+            if (idx < 0) {
+              applyErrors.push({ path: opPath, reason: "find_not_found", find_preview: op.find.slice(0, 120) });
+              continue;
+            }
+            const after = `${before.slice(0, idx)}${op.replace}${before.slice(idx + op.find.length)}`;
+            if (after === before) {
+              applyErrors.push({ path: opPath, reason: "no_effect" });
+              continue;
+            }
+            fs.writeFileSync(abs, after, "utf8");
+            appliedThisIter += 1;
           }
 
-          const applyRes = runShell(`git apply --whitespace=nowarn "${patchAbs}"`);
-          const appliedOk = applyRes.code === 0;
           await recordAction(supabase, runId, {
             stepIndex: i,
             phase: "apply",
-            toolName: "git",
-            target: "git apply",
-            status: appliedOk ? "ok" : "error",
-            latencyMs: applyRes.latencyMs,
-            details: { stdout: applyRes.stdout, stderr: applyRes.stderr, patch_file: patchFile },
+            toolName: "file_replace",
+            target: "ops_apply",
+            status: appliedThisIter > 0 ? "ok" : "error",
+            latencyMs: 25,
+            details: { applied_this_iteration: appliedThisIter, errors: applyErrors, ops_file: opsFile },
           });
           await recordEval(supabase, runId, {
             suite: "patch",
-            metric: "patch_apply_success",
-            value: applyRes.code,
-            threshold: 0,
-            pass: appliedOk,
-            details: { iteration: i, patch_file: patchFile },
+            metric: "ops_apply_success_count",
+            value: appliedThisIter,
+            threshold: 1,
+            pass: appliedThisIter > 0,
+            details: { iteration: i, errors: applyErrors },
           });
 
-          if (!appliedOk) {
-            await raiseIncident(supabase, runId, "error", "patch_apply_failed", "git apply failed", {
+          if (appliedThisIter === 0) {
+            await raiseIncident(supabase, runId, "error", "ops_apply_failed", "No edit op could be applied", {
               iteration: i,
-              patch_file: patchFile,
-              stderr: applyRes.stderr,
+              errors: applyErrors,
             });
           } else {
-            appliedPatches += 1;
+            appliedPatches += appliedThisIter;
             localLog.patches[localLog.patches.length - 1].status = "applied";
+            localLog.patches[localLog.patches.length - 1].applied_this_iteration = appliedThisIter;
           }
         }
       }
@@ -645,6 +746,15 @@ async function main() {
     errorMessage = err instanceof Error ? err.message : String(err);
     localLog.incidents.push({ type: "runner_exception", message: errorMessage });
     await raiseIncident(supabase, runId, "critical", "runner_exception", errorMessage, {});
+  }
+
+  if (!failed && !args.dryRun && args.editMode === "apply" && appliedPatches === 0) {
+    failed = true;
+    errorMessage = "No edit operations were applied (0 changes).";
+    await raiseIncident(supabase, runId, "error", "no_changes_applied", errorMessage, {
+      edit_mode: args.editMode,
+      max_iterations: args.maxIterations,
+    });
   }
 
   const finalStatus = failed ? "failed" : !args.dryRun && args.editMode === "apply" ? "promotable" : "completed";

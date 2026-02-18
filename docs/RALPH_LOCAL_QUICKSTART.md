@@ -11,6 +11,8 @@ $env:SUPABASE_URL="https://<project-ref>.supabase.co"
 $env:SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
 ```
 
+Runner also loads a local `.env` file automatically when variables are not present in the shell.
+
 Optional for LLM mode:
 
 ```powershell
@@ -55,23 +57,30 @@ scripts\run-ralph-local-runner.bat --mode=qa --dry-run=false --llm-provider=anth
 
 ## 4.1) Enable site/platform edits (safe modes)
 
-Propose patch files only (no code changes applied):
+Propose edit operations only (no code changes applied):
 
 ```powershell
 scripts\run-ralph-local-runner.bat --mode=dev --dry-run=false --llm-provider=openai --llm-model=gpt-4.1-mini --scope=csv,lookup --max-iterations=2 --edit-mode=propose --edit-max-files=2 --edit-allowlist=src/,index.html,docs/
 ```
 
-Apply patch automatically (requires non-main branch by default):
+Apply edit operations automatically (requires non-main branch by default):
 
 ```powershell
 git checkout -b feat/ralph-autofix-test
 scripts\run-ralph-local-runner.bat --mode=dev --dry-run=false --llm-provider=openai --llm-model=gpt-4.1-mini --scope=csv,lookup --max-iterations=2 --edit-mode=apply --edit-max-files=2 --edit-allowlist=src/,index.html,docs/ --gate-build=true --gate-test=true
 ```
 
+Use a dedicated prompt file:
+
+```powershell
+scripts\run-ralph-local-runner.bat --mode=dev --dry-run=false --llm-provider=openai --llm-model=gpt-4.1-mini --scope=csv,lookup --max-iterations=2 --edit-mode=apply --edit-max-files=2 --edit-allowlist=src/,index.html,docs/ --prompt-file=docs/RALPH_SITE_IMPROVEMENT_PROMPT.md --gate-build=true --gate-test=true
+```
+
 Notes:
 - `--edit-mode=apply` is blocked on `main/master` unless `--require-non-main-branch=false`.
-- Patch files are saved under `scripts/_out/ralph_local_runner/run_*/patches/`.
+- Proposed operations are saved under `scripts/_out/ralph_local_runner/run_*/patches/*_ops.json`.
 - Scope control is enforced by allowlist and max touched files.
+- In `--edit-mode=apply`, if zero operations are applied, run status is `failed`.
 
 ## 5) Optional quality gates
 
@@ -104,3 +113,13 @@ select public.get_ralph_health(24);
 2. Verify rows + health JSON.
 3. Run one LLM mode run with 1-2 iterations.
 4. Decide if worth deploying orchestrator via Lovable.
+
+## 8) Autonomous loop (60 minutes / every 5 minutes)
+
+```powershell
+git checkout -b feat/ralph-loop-60m
+scripts\run-ralph-loop.bat -Mode dev -DurationMinutes 60 -IntervalSeconds 300 -MaxIterations 2 -EditMode apply -EditMaxFiles 2 -EditAllowlist "src/,index.html,docs/" -LlmProvider openai -LlmModel gpt-4.1-mini -Scope "csv,lookup" -PromptFile "docs/RALPH_SITE_IMPROVEMENT_PROMPT.md"
+```
+
+The loop writes a consolidated summary in:
+- `scripts/_out/ralph_loop/run_*/ralph_loop_summary.json`
