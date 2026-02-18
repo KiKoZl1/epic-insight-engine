@@ -57,6 +57,15 @@ function parseArgs(argv) {
     outDir: path.join(process.cwd(), "scripts", "_out", "ralph_local_runner"),
     prompt: "Improve reliability and product quality for CSV and Island Lookup.",
     promptFile: "",
+    featureFile: "docs/ralph/feature_backlog.json",
+    progressFile: "docs/ralph/progress_log.jsonl",
+    targetFiles: [],
+    autoMarkFeaturePass: true,
+    semanticMatchCount: 8,
+    semanticMinImportance: 40,
+    semanticUseEmbeddings: true,
+    semanticEmbeddingModel: "text-embedding-3-small",
+    maxCandidateFiles: 80,
   };
 
   for (const raw of argv) {
@@ -79,6 +88,15 @@ function parseArgs(argv) {
     else if (raw.startsWith("--out-dir=")) args.outDir = raw.slice("--out-dir=".length);
     else if (raw.startsWith("--prompt=")) args.prompt = raw.slice("--prompt=".length);
     else if (raw.startsWith("--prompt-file=")) args.promptFile = raw.slice("--prompt-file=".length);
+    else if (raw.startsWith("--feature-file=")) args.featureFile = raw.slice("--feature-file=".length);
+    else if (raw.startsWith("--progress-file=")) args.progressFile = raw.slice("--progress-file=".length);
+    else if (raw.startsWith("--target-files=")) args.targetFiles = parseList(raw.slice("--target-files=".length), args.targetFiles);
+    else if (raw.startsWith("--auto-mark-feature-pass=")) args.autoMarkFeaturePass = asBool(raw.slice("--auto-mark-feature-pass=".length), true);
+    else if (raw.startsWith("--semantic-match-count=")) args.semanticMatchCount = Number(raw.slice("--semantic-match-count=".length));
+    else if (raw.startsWith("--semantic-min-importance=")) args.semanticMinImportance = Number(raw.slice("--semantic-min-importance=".length));
+    else if (raw.startsWith("--semantic-use-embeddings=")) args.semanticUseEmbeddings = asBool(raw.slice("--semantic-use-embeddings=".length), true);
+    else if (raw.startsWith("--semantic-embedding-model=")) args.semanticEmbeddingModel = raw.slice("--semantic-embedding-model=".length);
+    else if (raw.startsWith("--max-candidate-files=")) args.maxCandidateFiles = Number(raw.slice("--max-candidate-files=".length));
   }
 
   if (!VALID_MODES.has(args.mode)) args.mode = "custom";
@@ -88,6 +106,9 @@ function parseArgs(argv) {
   if (!Number.isFinite(args.budgetUsd) || args.budgetUsd < 0) args.budgetUsd = 0;
   if (!Number.isFinite(args.tokenBudget) || args.tokenBudget < 0) args.tokenBudget = 0;
   if (!Number.isFinite(args.editMaxFiles) || args.editMaxFiles < 1) args.editMaxFiles = 2;
+  if (!Number.isFinite(args.semanticMatchCount) || args.semanticMatchCount < 1) args.semanticMatchCount = 8;
+  if (!Number.isFinite(args.semanticMinImportance) || args.semanticMinImportance < 0) args.semanticMinImportance = 40;
+  if (!Number.isFinite(args.maxCandidateFiles) || args.maxCandidateFiles < 10) args.maxCandidateFiles = 80;
 
   return args;
 }
@@ -176,7 +197,184 @@ function summarizeContextPack(contextPack) {
   ].join("\n");
 }
 
-function buildPlanPrompt(args, iteration, contextSummary) {
+function summarizeSemanticRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return "No semantic memory matches.";
+  return rows
+    .slice(0, 6)
+    .map((r) => `- [${r.score}] (${r.doc_type}) ${r.title || r.doc_key}: ${(r.content_excerpt || "").slice(0, 180)}`)
+    .join("\n");
+}
+
+function readJsonSafe(filePath, fallback = null) {
+  const abs = path.resolve(filePath);
+  if (!fs.existsSync(abs)) return fallback;
+  try {
+    const raw = fs.readFileSync(abs, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function pickActiveFeature(featureDoc) {
+  if (!featureDoc) return null;
+  const features = Array.isArray(featureDoc)
+    ? featureDoc
+    : Array.isArray(featureDoc.features)
+      ? featureDoc.features
+      : [];
+  if (!features.length) return null;
+  const pending = features.filter((f) => f && f.passes !== true);
+  if (!pending.length) return null;
+  pending.sort((a, b) => {
+    const pa = Number.isFinite(a?.priority) ? a.priority : 9999;
+    const pb = Number.isFinite(b?.priority) ? b.priority : 9999;
+    return pa - pb;
+  });
+  return pending[0];
+}
+
+function gateStatusMap(gateResults) {
+  const out = new Map();
+  for (const g of Array.isArray(gateResults) ? gateResults : []) {
+    if (!g?.gate) continue;
+    out.set(String(g.gate), Number(g.code) === 0);
+  }
+  return out;
+}
+
+function shouldMarkFeaturePass(args, activeFeature, finalStatus, failed, appliedPatches, gateResults) {
+  if (!args.autoMarkFeaturePass) return { ok: false, reason: "auto_mark_disabled" };
+  if (!activeFeature?.id) return { ok: false, reason: "no_active_feature" };
+  if (failed || finalStatus === "failed") return { ok: false, reason: "run_failed" };
+  if (args.editMode !== "apply") return { ok: false, reason: "not_apply_mode" };
+  if (appliedPatches <= 0) return { ok: false, reason: "no_applied_patches" };
+  if (!args.gateBuild || !args.gateTest) return { ok: false, reason: "required_gates_not_enabled" };
+
+  const gates = gateStatusMap(gateResults);
+  if (gates.get("build") !== true) return { ok: false, reason: "build_gate_failed" };
+  if (gates.get("test") !== true) return { ok: false, reason: "test_gate_failed" };
+  if (args.gateLint && gates.get("lint") !== true) return { ok: false, reason: "lint_gate_failed" };
+
+  return { ok: true, reason: "validated_apply_run" };
+}
+
+function markFeaturePass(featureFile, featureId, meta = {}) {
+  const abs = path.resolve(featureFile);
+  if (!fs.existsSync(abs)) return { updated: false, reason: "feature_file_missing", path: abs };
+  let doc = null;
+  try {
+    doc = JSON.parse(fs.readFileSync(abs, "utf8"));
+  } catch {
+    return { updated: false, reason: "feature_file_invalid_json", path: abs };
+  }
+  if (!doc || !Array.isArray(doc.features)) {
+    return { updated: false, reason: "feature_file_missing_features_array", path: abs };
+  }
+  const idx = doc.features.findIndex((f) => f && f.id === featureId);
+  if (idx < 0) return { updated: false, reason: "feature_not_found", path: abs };
+
+  const prev = doc.features[idx];
+  if (prev.passes === true) return { updated: false, reason: "already_passed", path: abs, feature: prev };
+
+  doc.features[idx] = {
+    ...prev,
+    passes: true,
+    passed_at: new Date().toISOString(),
+    pass_evidence: {
+      ...(prev.pass_evidence || {}),
+      ...meta,
+    },
+  };
+  fs.writeFileSync(abs, JSON.stringify(doc, null, 2), "utf8");
+  return { updated: true, reason: "feature_marked_pass", path: abs, feature: doc.features[idx] };
+}
+
+function appendJsonl(filePath, obj) {
+  const abs = path.resolve(filePath);
+  ensureDir(path.dirname(abs));
+  const line = `${JSON.stringify(obj)}\n`;
+  fs.appendFileSync(abs, line, "utf8");
+}
+
+function collectSourceFiles(maxFiles = 500) {
+  const root = path.resolve("src");
+  if (!fs.existsSync(root)) return [];
+  const out = [];
+  const stack = [root];
+  while (stack.length && out.length < maxFiles) {
+    const cur = stack.pop();
+    if (!cur || !fs.existsSync(cur)) continue;
+    const st = fs.statSync(cur);
+    if (st.isDirectory()) {
+      const entries = fs.readdirSync(cur);
+      for (const e of entries.reverse()) stack.push(path.join(cur, e));
+      continue;
+    }
+    if (!st.isFile()) continue;
+    const ext = path.extname(cur).toLowerCase();
+    if (![".ts", ".tsx", ".js", ".jsx"].includes(ext)) continue;
+    out.push(normalizePath(path.relative(process.cwd(), cur)));
+  }
+  return out;
+}
+
+function getCandidateFiles(args, activeFeature, semanticRows) {
+  const wanted = new Set(args.scope.map((s) => String(s).toLowerCase()));
+  const candidates = new Set();
+  const sourceFiles = collectSourceFiles(1200);
+
+  const pushIfExists = (p) => {
+    const np = normalizePath(p);
+    if (np && fs.existsSync(path.resolve(np))) candidates.add(np);
+  };
+
+  for (const p of args.targetFiles || []) pushIfExists(p);
+  for (const p of activeFeature?.target_files || []) pushIfExists(p);
+  for (const row of Array.isArray(semanticRows) ? semanticRows : []) {
+    const p = row?.metadata?.path || row?.source_path;
+    if (typeof p === "string") pushIfExists(p);
+  }
+
+  const includeByRegex = (regex) => {
+    for (const f of sourceFiles) {
+      if (regex.test(f)) pushIfExists(f);
+      if (candidates.size >= args.maxCandidateFiles) break;
+    }
+  };
+
+  if (wanted.has("lookup")) includeByRegex(/lookup|island/i);
+  if (wanted.has("csv")) includeByRegex(/csv|zip|uploader|metrics|parsing|analytics/i);
+  if (wanted.has("report")) includeByRegex(/report|weekly/i);
+  if (wanted.has("admin")) includeByRegex(/admin|command/i);
+  if (wanted.has("dataops")) includeByRegex(/integrations|supabase|hooks|lib/i);
+
+  if (candidates.size === 0) {
+    pushIfExists("src/pages/IslandLookup.tsx");
+    pushIfExists("src/components/ZipUploader.tsx");
+  }
+
+  return Array.from(candidates).slice(0, args.maxCandidateFiles);
+}
+
+function buildPlanPrompt(args, iteration, contextSummary, semanticSummary, activeFeature) {
+  const featureBlock = activeFeature
+    ? [
+        "Active feature from backlog:",
+        JSON.stringify(
+          {
+            id: activeFeature.id || null,
+            category: activeFeature.category || null,
+            title: activeFeature.title || null,
+            description: activeFeature.description || null,
+            target_files: activeFeature.target_files || [],
+          },
+          null,
+          2
+        ),
+      ].join("\n")
+    : "Active feature from backlog: none (fallback to best improvement opportunity).";
+
   return [
     "You are Ralph runner in Epic Insight Engine.",
     `Mode: ${args.mode}`,
@@ -186,38 +384,18 @@ function buildPlanPrompt(args, iteration, contextSummary) {
     "",
     "Operational context pack:",
     contextSummary || "No context pack available.",
+    "",
+    "Semantic memory matches:",
+    semanticSummary || "No semantic memory matches.",
+    "",
+    featureBlock,
     "Return concise JSON with keys: plan, risks, next_action.",
   ].join("\n");
 }
 
-function getCandidateFiles(scope) {
-  const wanted = new Set(scope.map((s) => String(s).toLowerCase()));
-  const candidates = [];
-  const pushIfExists = (p) => {
-    if (fs.existsSync(p)) candidates.push(normalizePath(p));
-  };
-
-  if (wanted.has("lookup")) {
-    pushIfExists("src/pages/IslandLookup.tsx");
-  }
-  if (wanted.has("csv")) {
-    pushIfExists("src/components/ZipUploader.tsx");
-    pushIfExists("src/lib/parsing/zipProcessor.ts");
-    pushIfExists("src/lib/parsing/metricsEngine.ts");
-    pushIfExists("src/lib/parsing/normalize.ts");
-  }
-
-  // Always keep at least one fallback file for deterministic behavior
-  if (candidates.length === 0) {
-    pushIfExists("src/pages/IslandLookup.tsx");
-    pushIfExists("src/components/ZipUploader.tsx");
-  }
-  return Array.from(new Set(candidates));
-}
-
-function readCandidateContext(paths, maxCharsPerFile = 5000) {
+function readCandidateContext(paths, maxCharsPerFile = 5000, maxFiles = 14) {
   const blocks = [];
-  for (const p of paths) {
+  for (const p of paths.slice(0, maxFiles)) {
     const abs = path.resolve(p);
     if (!fs.existsSync(abs)) continue;
     let text = "";
@@ -234,7 +412,11 @@ function readCandidateContext(paths, maxCharsPerFile = 5000) {
   return blocks.join("\n\n");
 }
 
-function buildOpsPrompt(args, iteration, planText, candidateFiles, candidateContext, contextSummary) {
+function buildOpsPrompt(args, iteration, planText, candidateFiles, candidateContext, contextSummary, semanticSummary, activeFeature) {
+  const featureBlock = activeFeature
+    ? `Active feature: ${activeFeature.title || activeFeature.id || "unnamed"}`
+    : "Active feature: none";
+
   return [
     "You are generating SAFE code edit operations for a React + TypeScript repository.",
     `Iteration ${iteration}/${args.maxIterations}`,
@@ -243,9 +425,13 @@ function buildOpsPrompt(args, iteration, planText, candidateFiles, candidateCont
     "",
     "Operational context pack:",
     contextSummary || "No context pack available.",
+    "",
+    "Semantic memory matches:",
+    semanticSummary || "No semantic memory matches.",
+    featureBlock,
     `Allowed paths prefixes: ${args.editAllowlist.join(", ")}`,
     `Max files this iteration: ${args.editMaxFiles}`,
-    "You must return STRICT JSON only (no markdown):",
+    "You must return STRICT VALID JSON only (no markdown, no prose):",
     '{"edits":[{"path":"src/...","find":"exact snippet","replace":"new snippet","reason":"short reason"}]}',
     "Rules:",
     "- path MUST be one of candidate files listed below.",
@@ -263,20 +449,56 @@ function buildOpsPrompt(args, iteration, planText, candidateFiles, candidateCont
 }
 
 function extractJsonObject(text) {
-  const t = String(text || "").trim();
+  let t = String(text || "").trim();
   if (!t) return null;
-  try {
-    return JSON.parse(t);
-  } catch {
-    // try first {...} block
-    const m = t.match(/\{[\s\S]*\}/);
-    if (!m) return null;
-    try {
-      return JSON.parse(m[0]);
-    } catch {
-      return null;
-    }
+  if (t.startsWith("```")) {
+    t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   }
+  try {
+    const p = JSON.parse(t);
+    if (typeof p === "string") {
+      try {
+        return JSON.parse(p);
+      } catch {
+        return null;
+      }
+    }
+    return p;
+  } catch {
+    const first = t.indexOf("{");
+    const last = t.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      const slice = t.slice(first, last + 1);
+      try {
+        return JSON.parse(slice);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+async function callOpenAIEmbedding(input, model) {
+  const apiKey = mustEnv("OPENAI_API_KEY");
+  const m = model || "text-embedding-3-small";
+  const res = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: m,
+      input,
+    }),
+  });
+  const raw = await res.text();
+  if (!res.ok) throw new Error(`OpenAI embeddings error ${res.status}: ${raw.slice(0, 300)}`);
+  const json = JSON.parse(raw);
+  const emb = json?.data?.[0]?.embedding;
+  if (!Array.isArray(emb) || emb.length === 0) throw new Error("Invalid embedding response");
+  return emb;
 }
 
 function parseEditOps(rawText) {
@@ -494,10 +716,16 @@ async function main() {
   let appliedPatches = 0;
   const startedAt = Date.now();
   const repoContext = collectRepoContext();
-  const candidateFiles = getCandidateFiles(args.scope).filter((p) => pathAllowed(p, args.editAllowlist));
-  const candidateContext = readCandidateContext(candidateFiles);
+  const featureDoc = readJsonSafe(args.featureFile, null);
+  const activeFeature = pickActiveFeature(featureDoc);
+  let candidateFiles = [];
+  let candidateContext = "";
   let contextPack = null;
   let contextSummary = "No context pack available.";
+  let semanticRows = [];
+  let semanticSummary = "No semantic memory matches.";
+  localLog.feature_file = path.resolve(args.featureFile);
+  localLog.active_feature = activeFeature;
 
   try {
     contextPack = await rpc(supabase, "get_ralph_context_pack", {
@@ -547,12 +775,73 @@ async function main() {
   }
 
   try {
+    const semanticQuery = [
+      args.prompt,
+      `Mode: ${args.mode}`,
+      `Scope: ${args.scope.join(", ")}`,
+      contextSummary,
+    ].join("\n");
+
+    let embeddingText = null;
+    if (!args.dryRun && args.semanticUseEmbeddings && process.env.OPENAI_API_KEY) {
+      const emb = await callOpenAIEmbedding(semanticQuery, args.semanticEmbeddingModel);
+      embeddingText = JSON.stringify(emb);
+    }
+
+    semanticRows = await rpc(supabase, "search_ralph_memory_documents", {
+      p_query_text: semanticQuery,
+      p_query_embedding_text: embeddingText,
+      p_scope: args.scope,
+      p_match_count: args.semanticMatchCount,
+      p_min_importance: args.semanticMinImportance,
+    });
+
+    if (!Array.isArray(semanticRows)) semanticRows = [];
+    semanticSummary = summarizeSemanticRows(semanticRows);
+    localLog.semantic_context = { rows: semanticRows };
+
+    await recordAction(supabase, runId, {
+      stepIndex: 0,
+      phase: "context",
+      toolName: "rpc:search_ralph_memory_documents",
+      target: args.scope.join(","),
+      status: "ok",
+      latencyMs: 20,
+      details: { matches: semanticRows.length },
+    });
+    await recordEval(supabase, runId, {
+      suite: "context",
+      metric: "semantic_matches_count",
+      value: semanticRows.length,
+      threshold: 1,
+      pass: semanticRows.length > 0,
+      details: { query: semanticQuery.slice(0, 180) },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    localLog.semantic_context_error = msg;
+    await recordAction(supabase, runId, {
+      stepIndex: 0,
+      phase: "context",
+      toolName: "rpc:search_ralph_memory_documents",
+      target: args.scope.join(","),
+      status: "warn",
+      latencyMs: 20,
+      details: { error: msg },
+    });
+  }
+
+  candidateFiles = getCandidateFiles(args, activeFeature, semanticRows).filter((p) => pathAllowed(p, args.editAllowlist));
+  candidateContext = readCandidateContext(candidateFiles, 5000, 14);
+  localLog.candidate_files = candidateFiles;
+
+  try {
     for (let i = 1; i <= args.maxIterations; i++) {
       if (Date.now() - startedAt > args.timeoutMinutes * 60_000) {
         throw new Error(`Run timeout exceeded (${args.timeoutMinutes} min).`);
       }
 
-      const planPrompt = buildPlanPrompt(args, i, contextSummary);
+      const planPrompt = buildPlanPrompt(args, i, contextSummary, semanticSummary, activeFeature);
       const llmPlan = args.dryRun
         ? { provider: "none", model: "dry-run", text: '{"plan":"dry","risks":[],"next_action":"noop"}', raw: { dry_run: true, iteration: i } }
         : await callLlm(args.llmProvider, args.llmModel, planPrompt);
@@ -603,7 +892,9 @@ async function main() {
           llmPlan.text.slice(0, 1200),
           candidateFiles,
           candidateContext || repoContext,
-          contextSummary
+          contextSummary,
+          semanticSummary,
+          activeFeature
         );
         const llmOps = await callLlm(args.llmProvider, args.llmModel, opsPrompt);
         const ops = parseEditOps(llmOps.text);
@@ -895,8 +1186,58 @@ async function main() {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  const passCheck = shouldMarkFeaturePass(
+    args,
+    activeFeature,
+    finalStatus,
+    failed,
+    appliedPatches,
+    localLog.gate_results
+  );
+  localLog.feature_pass_check = passCheck;
+  if (passCheck.ok && activeFeature?.id) {
+    const markRes = markFeaturePass(args.featureFile, activeFeature.id, {
+      run_id: runId,
+      final_status: finalStatus,
+      applied_patches: appliedPatches,
+      changed_files_after_run: localLog.changed_files_after_run,
+      gates: {
+        lint: args.gateLint,
+        build: args.gateBuild,
+        test: args.gateTest,
+      },
+    });
+    localLog.feature_pass_update = markRes;
+  }
+
   const outPath = path.join(runDir, "ralph_local_runner_summary.json");
   await fsp.writeFile(outPath, JSON.stringify(localLog, null, 2), "utf8");
+
+  try {
+    appendJsonl(args.progressFile, {
+      ts: new Date().toISOString(),
+      run_id: runId,
+      mode: args.mode,
+      status: finalStatus,
+      dry_run: args.dryRun,
+      edit_mode: args.editMode,
+      scope: args.scope,
+      active_feature: activeFeature
+        ? {
+            id: activeFeature.id || null,
+            title: activeFeature.title || null,
+            category: activeFeature.category || null,
+          }
+        : null,
+      feature_pass_check: localLog.feature_pass_check || null,
+      feature_pass_update: localLog.feature_pass_update || null,
+      applied_patches: appliedPatches,
+      changed_files_after_run: localLog.changed_files_after_run,
+      summary_path: outPath,
+    });
+  } catch (_e) {
+    // best-effort progress artifact
+  }
 
   console.log("Ralph local runner finished.");
   console.log(`- run_id: ${runId}`);

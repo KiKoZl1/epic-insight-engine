@@ -51,3 +51,11 @@ This is the bridge between:
 1. Ralph as a platform-improvement operator.
 2. Ralph as data specialist with durable operational memory.
 3. LLM V2 consuming a structured `context pack` instead of ad-hoc prompts.
+
+## Semantic memory extension
+
+For deeper project/domain understanding, use the semantic layer documented in:
+
+- `docs/RALPH_SEMANTIC_MEMORY.md`
+
+This adds hybrid retrieval over chunked docs/code (`ralph_memory_documents`) and feeds matching snippets into Ralph prompts.

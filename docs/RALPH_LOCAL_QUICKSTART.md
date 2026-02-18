@@ -2,6 +2,12 @@
 
 Use this to test Ralph locally before any deploy.
 
+## 0) Long-running artifacts (required)
+
+- PRD: `docs/ralph/PRD_APP_VALUE_AND_DATA_SPECIALIST.md`
+- Feature backlog: `docs/ralph/feature_backlog.json`
+- Progress log: `docs/ralph/progress_log.jsonl`
+
 ## 1) Prerequisites
 
 Set environment variables in PowerShell:
@@ -81,6 +87,12 @@ Notes:
 - Proposed operations are saved under `scripts/_out/ralph_local_runner/run_*/patches/*_ops.json`.
 - Scope control is enforced by allowlist and max touched files.
 - In `--edit-mode=apply`, if zero operations are applied, run status is `failed`.
+- Runner reads `--feature-file` and logs each session to `--progress-file`.
+- Feature auto-pass update is enabled by default (`--auto-mark-feature-pass=true`) and only occurs when:
+  - `edit-mode=apply`
+  - at least one patch was applied
+  - `gate-build=true` and `gate-test=true`
+  - required gates pass
 
 ## 5) Optional quality gates
 

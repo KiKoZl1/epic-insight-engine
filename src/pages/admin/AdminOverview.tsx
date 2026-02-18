@@ -33,6 +33,27 @@ function timeNow() {
   return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function fmtDurationMs(ms: number | null | undefined): string {
+  if (ms == null || Number.isNaN(ms)) return "-";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return rem === 0 ? `${min}m` : `${min}m ${rem}s`;
+}
+
+function fmtAge(iso: string | null | undefined): string {
+  if (!iso) return "-";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "-";
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.round(sec / 60)}min`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
+  return `${Math.floor(sec / 86400)}d`;
+}
+
 // ─── HealthDot ────────────────────────────────────────────────
 
 type HealthStatus = "ok" | "warn" | "error" | "idle";
@@ -146,6 +167,77 @@ interface LookupPipelineData {
   coverageDiscoverySignalsPct: number;
   coverageWeeklyPerfPct: number;
   errorBreakdown: Array<{ error_type: string; count: number }>;
+}
+
+interface RalphHealthData {
+  hoursWindow: number;
+  runsTotal: number;
+  runsRunning: number;
+  runsSuccess: number;
+  runsFailed: number;
+  runsCancelled: number;
+  successRatePct: number;
+  avgDurationMs: number | null;
+  p95DurationMs: number | null;
+  openIncidents: number;
+  criticalOpenIncidents: number;
+  lastRunAt: string | null;
+}
+
+interface RalphRunRow {
+  id: string;
+  mode: string;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+  updated_at: string;
+  error_message: string | null;
+  target_scope: string[] | null;
+  summary?: any;
+}
+
+interface RalphActionRow {
+  id: number;
+  run_id: string;
+  step_index: number;
+  phase: string;
+  tool_name: string | null;
+  target: string | null;
+  status: string;
+  latency_ms: number;
+  created_at: string;
+  details?: any;
+}
+
+interface RalphEvalRow {
+  id: number;
+  run_id: string;
+  suite: string;
+  metric: string;
+  value: number | null;
+  threshold: number | null;
+  pass: boolean;
+  created_at: string;
+}
+
+interface RalphIncidentRow {
+  id: number;
+  run_id: string | null;
+  severity: "info" | "warn" | "error" | "critical";
+  incident_type: string;
+  message: string;
+  resolved: boolean;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+interface RalphMemoryData {
+  snapshots24h: number;
+  itemsTotal: number;
+  docsTotal: number;
+  decisionsOpen: number;
+  topItemLabel: string | null;
+  topItemImportance: number | null;
 }
 
 interface CronJob {
@@ -331,6 +423,12 @@ export default function AdminOverview() {
   // Rails / Link graph
   const [linkGraph, setLinkGraph] = useState<LinkGraphData | null>(null);
   const [lookup, setLookup] = useState<LookupPipelineData | null>(null);
+  const [ralphHealth, setRalphHealth] = useState<RalphHealthData | null>(null);
+  const [ralphRuns, setRalphRuns] = useState<RalphRunRow[]>([]);
+  const [ralphActions, setRalphActions] = useState<RalphActionRow[]>([]);
+  const [ralphEvals, setRalphEvals] = useState<RalphEvalRow[]>([]);
+  const [ralphIncidents, setRalphIncidents] = useState<RalphIncidentRow[]>([]);
+  const [ralphMemory, setRalphMemory] = useState<RalphMemoryData | null>(null);
 
   // Crons
   const [crons, setCrons] = useState<CronJob[]>([]);
@@ -540,6 +638,155 @@ export default function AdminOverview() {
     pushLH("failRate", Number(s.fail_rate_24h_pct || 0));
   }, []);
 
+  const fetchRalph = useCallback(async () => {
+    try {
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const [
+        healthRes,
+        runsRes,
+        actionsRes,
+        evalsRes,
+        incidentsRes,
+        snapshots24hRes,
+        memoryItemsRes,
+        memoryDocsRes,
+        openDecisionsRes,
+        topMemoryItemRes,
+      ] = await Promise.all([
+        (supabase as any).rpc("get_ralph_health", { p_hours: 24 }),
+        supabase
+          .from("ralph_runs" as any)
+          .select("id,mode,status,started_at,ended_at,updated_at,error_message,target_scope,summary")
+          .order("started_at", { ascending: false })
+          .limit(8),
+        supabase
+          .from("ralph_actions" as any)
+          .select("id,run_id,step_index,phase,tool_name,target,status,latency_ms,created_at,details")
+          .order("created_at", { ascending: false })
+          .limit(10),
+        supabase
+          .from("ralph_eval_results" as any)
+          .select("id,run_id,suite,metric,value,threshold,pass,created_at")
+          .order("created_at", { ascending: false })
+          .limit(10),
+        supabase
+          .from("ralph_incidents" as any)
+          .select("id,run_id,severity,incident_type,message,resolved,created_at,resolved_at")
+          .order("created_at", { ascending: false })
+          .limit(10),
+        supabase
+          .from("ralph_memory_snapshots" as any)
+          .select("id", { count: "exact", head: true })
+          .gte("created_at", since24h),
+        supabase
+          .from("ralph_memory_items" as any)
+          .select("id", { count: "exact", head: true }),
+        supabase
+          .from("ralph_memory_documents" as any)
+          .select("id", { count: "exact", head: true })
+          .eq("is_active", true),
+        supabase
+          .from("ralph_memory_decisions" as any)
+          .select("id", { count: "exact", head: true })
+          .neq("status", "accepted")
+          .neq("status", "rejected"),
+        supabase
+          .from("ralph_memory_items" as any)
+          .select("label,importance")
+          .order("importance", { ascending: false })
+          .order("last_seen_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      const h = healthRes?.data as any;
+      if (h && typeof h === "object") {
+        setRalphHealth({
+          hoursWindow: Number(h.hours_window || 24),
+          runsTotal: Number(h.runs_total || 0),
+          runsRunning: Number(h.runs_running || 0),
+          runsSuccess: Number(h.runs_success || 0),
+          runsFailed: Number(h.runs_failed || 0),
+          runsCancelled: Number(h.runs_cancelled || 0),
+          successRatePct: Number(h.success_rate_pct || 0),
+          avgDurationMs: h.avg_duration_ms != null ? Number(h.avg_duration_ms) : null,
+          p95DurationMs: h.p95_duration_ms != null ? Number(h.p95_duration_ms) : null,
+          openIncidents: Number(h.open_incidents || 0),
+          criticalOpenIncidents: Number(h.critical_open_incidents || 0),
+          lastRunAt: h.last_run_at || null,
+        });
+      } else {
+        setRalphHealth(null);
+      }
+
+      setRalphRuns(((runsRes?.data || []) as any[]).map((r) => ({
+        id: String(r.id),
+        mode: String(r.mode || "custom"),
+        status: String(r.status || "unknown"),
+        started_at: String(r.started_at || ""),
+        ended_at: r.ended_at || null,
+        updated_at: String(r.updated_at || ""),
+        error_message: r.error_message || null,
+        target_scope: Array.isArray(r.target_scope) ? r.target_scope.map(String) : null,
+        summary: r.summary || null,
+      })));
+
+      setRalphActions(((actionsRes?.data || []) as any[]).map((a) => ({
+        id: Number(a.id || 0),
+        run_id: String(a.run_id || ""),
+        step_index: Number(a.step_index || 0),
+        phase: String(a.phase || "execute"),
+        tool_name: a.tool_name || null,
+        target: a.target || null,
+        status: String(a.status || "ok"),
+        latency_ms: Number(a.latency_ms || 0),
+        created_at: String(a.created_at || ""),
+        details: a.details || null,
+      })));
+
+      setRalphEvals(((evalsRes?.data || []) as any[]).map((e) => ({
+        id: Number(e.id || 0),
+        run_id: String(e.run_id || ""),
+        suite: String(e.suite || "default"),
+        metric: String(e.metric || "unknown"),
+        value: e.value != null ? Number(e.value) : null,
+        threshold: e.threshold != null ? Number(e.threshold) : null,
+        pass: Boolean(e.pass),
+        created_at: String(e.created_at || ""),
+      })));
+
+      setRalphIncidents(((incidentsRes?.data || []) as any[]).map((i) => ({
+        id: Number(i.id || 0),
+        run_id: i.run_id || null,
+        severity: (i.severity || "warn") as RalphIncidentRow["severity"],
+        incident_type: String(i.incident_type || "generic"),
+        message: String(i.message || ""),
+        resolved: Boolean(i.resolved),
+        created_at: String(i.created_at || ""),
+        resolved_at: i.resolved_at || null,
+      })));
+
+      setRalphMemory({
+        snapshots24h: Number((snapshots24hRes as any)?.count || 0),
+        itemsTotal: Number((memoryItemsRes as any)?.count || 0),
+        docsTotal: Number((memoryDocsRes as any)?.count || 0),
+        decisionsOpen: Number((openDecisionsRes as any)?.count || 0),
+        topItemLabel: (topMemoryItemRes as any)?.data?.label || null,
+        topItemImportance: (topMemoryItemRes as any)?.data?.importance != null
+          ? Number((topMemoryItemRes as any).data.importance)
+          : null,
+      });
+    } catch {
+      // Keep UI resilient if Ralph tables/RPCs are unavailable
+      setRalphHealth(null);
+      setRalphRuns([]);
+      setRalphActions([]);
+      setRalphEvals([]);
+      setRalphIncidents([]);
+      setRalphMemory(null);
+    }
+  }, []);
+
   const handleBackfillCollections = useCallback(async () => {
     setBackfillLoading(true);
     try {
@@ -660,14 +907,14 @@ export default function AdminOverview() {
       setLastRefresh(timeNow());
     };
     const tickSlow = async () => {
-      await Promise.all([fetchCensus(), fetchExposure(), fetchLinkGraph(), fetchLookup(), fetchCrons(), fetchReports(), fetchAlerts()]);
+      await Promise.all([fetchCensus(), fetchExposure(), fetchLinkGraph(), fetchLookup(), fetchRalph(), fetchCrons(), fetchReports(), fetchAlerts()]);
     };
     tickFast();
     tickSlow();
     const fastId = setInterval(tickFast, 5_000);
     const slowId = setInterval(tickSlow, 30_000);
     return () => { clearInterval(fastId); clearInterval(slowId); };
-  }, [fetchCensus, fetchMeta, fetchExposure, fetchLinkGraph, fetchLookup, fetchCrons, fetchReports, fetchAlerts]);
+  }, [fetchCensus, fetchMeta, fetchExposure, fetchLinkGraph, fetchLookup, fetchRalph, fetchCrons, fetchReports, fetchAlerts]);
 
   // ─── Weekly pipeline (preserved logic) ────────────────────
 
@@ -812,6 +1059,13 @@ export default function AdminOverview() {
         : lookup.failRate24hPct >= 3 || (lookup.p95ms24h ?? 0) > 1800
           ? "warn"
           : "ok";
+  const ralphHealthStatus: HealthStatus = !ralphHealth
+    ? "idle"
+    : ralphHealth.criticalOpenIncidents > 0
+      ? "error"
+      : ralphHealth.openIncidents > 0 || ralphHealth.runsFailed > 0 || ralphHealth.successRatePct < 80
+        ? "warn"
+        : "ok";
   const reportHealth: HealthStatus = generating ? "ok" : genState.phase === "done" ? "ok" : "idle";
   const cronActiveCount = crons.filter((c) => c.active).length;
   const cronHealth: HealthStatus = crons.length === 0
@@ -869,6 +1123,7 @@ export default function AdminOverview() {
             <div className="flex items-center gap-1.5"><HealthDot status={metaHealth} label={`${metaPct.toFixed(1)}% preenchido`} /><span className="text-muted-foreground">Metadata</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={railsHealth} label={`${linkGraph?.collectionsResolved24h || 0}/${linkGraph?.collectionsSeen24h || 0} collections resolvidas (24h)`} /><span className="text-muted-foreground">Rails</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={lookupHealth} label={`${lookup?.ok1h || 0}/${lookup?.calls1h || 0} lookup ok (1h)`} /><span className="text-muted-foreground">Lookup</span></div>
+            <div className="flex items-center gap-1.5"><HealthDot status={ralphHealthStatus} label={`${ralphHealth?.runsRunning || 0} running · ${ralphHealth?.openIncidents || 0} incidentes`} /><span className="text-muted-foreground">Ralph</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={reportHealth} label={generating ? "Em andamento" : "Idle"} /><span className="text-muted-foreground">Report</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={monitoringOffline ? "error" : alertStatus} label={monitoringOffline ? "Monitoramento offline!" : `${alertBad.length} alertas ativos`} /><span className="text-muted-foreground">Alertas</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={cronHealth} label={`${cronActiveCount}/${crons.length || 0} ativos`} /><span className="text-muted-foreground">Crons</span></div>
@@ -1170,6 +1425,188 @@ export default function AdminOverview() {
                   </div>
                 ) : (
                   <p className="text-[11px] text-muted-foreground">Sem erros no periodo.</p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div>
+        <h2 className="font-display text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+          <Sparkles className="h-4 w-4" /> Ralph Monitor
+        </h2>
+        <Card>
+          <CardContent className="pt-4 pb-4 space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+              <StatCard
+                icon={Radio}
+                label="Status"
+                value={!ralphHealth ? "Idle" : ralphHealth.runsRunning > 0 ? "Running" : "Idle"}
+                color={!ralphHealth ? "default" : ralphHealth.runsRunning > 0 ? "success" : "default"}
+              />
+              <StatCard icon={Activity} label="Runs (24h)" value={fmt(ralphHealth?.runsTotal)} />
+              <StatCard
+                icon={CheckCircle2}
+                label="Success (24h)"
+                value={ralphHealth ? `${ralphHealth.successRatePct.toFixed(1)}%` : "-"}
+                color={(ralphHealth?.successRatePct || 0) >= 90 ? "success" : (ralphHealth?.successRatePct || 0) >= 75 ? "warning" : "destructive"}
+              />
+              <StatCard icon={Loader2} label="Running now" value={fmt(ralphHealth?.runsRunning)} />
+              <StatCard
+                icon={AlertTriangle}
+                label="Open incidents"
+                value={fmt(ralphHealth?.openIncidents)}
+                color={(ralphHealth?.openIncidents || 0) > 0 ? "warning" : "default"}
+              />
+              <StatCard
+                icon={ShieldAlert}
+                label="Critical open"
+                value={fmt(ralphHealth?.criticalOpenIncidents)}
+                color={(ralphHealth?.criticalOpenIncidents || 0) > 0 ? "destructive" : "default"}
+              />
+              <StatCard icon={Clock} label="Avg duration" value={fmtDurationMs(ralphHealth?.avgDurationMs)} />
+              <StatCard icon={Gauge} label="P95 duration" value={fmtDurationMs(ralphHealth?.p95DurationMs)} />
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <StatCard icon={Layers} label="Memory items" value={fmt(ralphMemory?.itemsTotal)} />
+              <StatCard icon={FileText} label="Semantic docs" value={fmt(ralphMemory?.docsTotal)} />
+              <StatCard icon={BarChart3} label="Snapshots 24h" value={fmt(ralphMemory?.snapshots24h)} />
+              <StatCard
+                icon={AlertCircle}
+                label="Decisions open"
+                value={fmt(ralphMemory?.decisionsOpen)}
+                color={(ralphMemory?.decisionsOpen || 0) > 0 ? "warning" : "default"}
+              />
+              <StatCard
+                icon={Hash}
+                label="Last run"
+                value={fmtAge(ralphHealth?.lastRunAt)}
+                sub={ralphHealth?.lastRunAt ? new Date(ralphHealth.lastRunAt).toLocaleString("pt-BR") : undefined}
+              />
+            </div>
+
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5 text-xs">
+              <p className="font-semibold text-sm">Context / Learning</p>
+              <p className="text-muted-foreground">
+                Top memory item:{" "}
+                <span className="font-mono font-semibold">{ralphMemory?.topItemLabel || "n/a"}</span>{" "}
+                {ralphMemory?.topItemImportance != null ? `(importance ${ralphMemory.topItemImportance})` : ""}
+              </p>
+              <p className="text-muted-foreground">
+                Runs tracked: {ralphRuns.length} | Actions tracked: {ralphActions.length} | Evals tracked: {ralphEvals.length}
+              </p>
+            </div>
+
+            <div className="grid lg:grid-cols-2 gap-4">
+              <div className="rounded-lg border p-3 space-y-2">
+                <p className="text-sm font-semibold">Latest runs</p>
+                {ralphRuns.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No run data yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {ralphRuns.slice(0, 6).map((r) => (
+                      <div key={r.id} className="rounded border bg-muted/20 p-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono">{r.id.slice(0, 8)}...</span>
+                          <Badge
+                            variant={r.status === "promotable" || r.status === "completed" ? "default" : r.status === "running" ? "secondary" : "destructive"}
+                            className="text-[10px]"
+                          >
+                            {r.status}
+                          </Badge>
+                        </div>
+                        <p className="text-muted-foreground mt-1">mode={r.mode} · started {fmtAge(r.started_at)} ago</p>
+                        {Array.isArray(r.target_scope) && r.target_scope.length > 0 && (
+                          <p className="text-muted-foreground">scope: {r.target_scope.join(", ")}</p>
+                        )}
+                        {r.summary?.active_feature?.title && (
+                          <p className="text-muted-foreground">feature: {String(r.summary.active_feature.title)}</p>
+                        )}
+                        {r.error_message && <p className="text-destructive mt-1 line-clamp-2">{r.error_message}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border p-3 space-y-2">
+                <p className="text-sm font-semibold">Latest actions / thinking</p>
+                {ralphActions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No action data yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {ralphActions.slice(0, 8).map((a) => (
+                      <div key={a.id} className="rounded border bg-muted/20 p-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono">#{a.step_index} · {a.phase}</span>
+                          <Badge variant={a.status === "ok" ? "default" : a.status === "warn" ? "secondary" : "destructive"} className="text-[10px]">
+                            {a.status}
+                          </Badge>
+                        </div>
+                        <p className="text-muted-foreground mt-1">{a.tool_name || "-"} · {fmtDurationMs(a.latency_ms)} · {fmtAge(a.created_at)} ago</p>
+                        {(a.details?.text_preview || a.details?.reason || a.details?.error || a.target) && (
+                          <p className="text-muted-foreground mt-1 line-clamp-3 font-mono">
+                            {String(a.details?.text_preview || a.details?.reason || a.details?.error || a.target)}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid lg:grid-cols-2 gap-4">
+              <div className="rounded-lg border p-3 space-y-2">
+                <p className="text-sm font-semibold">Latest evals</p>
+                {ralphEvals.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No eval data yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {ralphEvals.slice(0, 8).map((e) => (
+                      <div key={e.id} className="rounded border bg-muted/20 p-2 text-xs flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-mono">{e.suite}.{e.metric}</p>
+                          <p className="text-muted-foreground">value={e.value != null ? e.value : "-"} · threshold={e.threshold != null ? e.threshold : "-"}</p>
+                        </div>
+                        <Badge variant={e.pass ? "default" : "destructive"} className="text-[10px]">
+                          {e.pass ? "pass" : "fail"}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border p-3 space-y-2">
+                <p className="text-sm font-semibold">Latest incidents</p>
+                {ralphIncidents.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No incidents found.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {ralphIncidents.slice(0, 8).map((i) => (
+                      <div key={i.id} className="rounded border bg-muted/20 p-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono">{i.incident_type}</span>
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={i.severity === "critical" || i.severity === "error" ? "destructive" : i.severity === "warn" ? "secondary" : "default"}
+                              className="text-[10px]"
+                            >
+                              {i.severity}
+                            </Badge>
+                            <Badge variant={i.resolved ? "default" : "secondary"} className="text-[10px]">
+                              {i.resolved ? "resolved" : "open"}
+                            </Badge>
+                          </div>
+                        </div>
+                        <p className="text-muted-foreground mt-1 line-clamp-2">{i.message}</p>
+                        <p className="text-muted-foreground mt-1">created {fmtAge(i.created_at)} ago</p>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
