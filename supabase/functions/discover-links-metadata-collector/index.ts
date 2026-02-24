@@ -490,7 +490,14 @@ serve(async (req) => {
     });
     if (claimErr) return json({ success: false, error: claimErr.message }, 500);
     const claimed = Array.isArray(claims) ? claims : [];
-    if (!claimed.length) return json({ success: true, mode, claimed: false, processed: 0 });
+    if (!claimed.length) {
+      try {
+        await supabase.rpc("compute_system_alerts", {});
+      } catch (_e) {
+        // ignore
+      }
+      return json({ success: true, mode, claimed: false, processed: 0 });
+    }
 
     const lockByCode = new Map<string, string>();
     const codes = claimed.map((c: any) => String(c.link_code));
@@ -498,8 +505,8 @@ serve(async (req) => {
 
     // Fetch current rows for diff/events and existing last_error
     const existingMap = new Map<string, any>();
-    for (let i = 0; i < codes.length; i += 1000) {
-      const chunk = codes.slice(i, i + 1000);
+    for (let i = 0; i < codes.length; i += 100) {
+      const chunk = codes.slice(i, i + 100);
       const { data, error } = await supabase
         .from("discover_link_metadata")
         .select("link_code,title,image_url,updated_at_epic,moderation_status,link_state,last_error")
@@ -511,21 +518,27 @@ serve(async (req) => {
     // Signals for next_due_at
     const premiumNow = new Set<string>();
     {
-      const { data, error } = await supabase
-        .from("discovery_exposure_rank_segments")
-        .select("link_code,panel_name,end_ts")
-        .in("link_code", codes)
-        .is("end_ts", null)
-        .limit(5000);
-      if (!error) {
-        const panelNames = Array.from(new Set((data || []).map((r: any) => String(r.panel_name))));
+      const segRows: any[] = [];
+      for (let i = 0; i < codes.length; i += 100) {
+        const chunk = codes.slice(i, i + 100);
+        const { data, error } = await supabase
+          .from("discovery_exposure_rank_segments")
+          .select("link_code,panel_name,end_ts")
+          .in("link_code", chunk)
+          .is("end_ts", null)
+          .limit(5000);
+        if (error) continue;
+        segRows.push(...(data || []));
+      }
+      const panelNames = Array.from(new Set(segRows.map((r: any) => String(r.panel_name))));
+      if (panelNames.length) {
         // Only treat tier1 panels as premium (lookup once)
         const { data: tiers } = await supabase
           .from("discovery_panel_tiers")
           .select("panel_name,tier")
           .in("panel_name", panelNames);
         const tier1 = new Set((tiers || []).filter((t: any) => Number(t.tier) === 1).map((t: any) => String(t.panel_name)));
-        for (const r of data || []) {
+        for (const r of segRows) {
           if (tier1.has(String(r.panel_name))) premiumNow.add(String(r.link_code));
         }
       }
@@ -533,17 +546,21 @@ serve(async (req) => {
 
     const lastSeenMap = new Map<string, string>();
     {
-      const { data, error } = await supabase
-        .from("discovery_exposure_link_state")
-        .select("link_code,last_seen_at")
-        .in("link_code", codes)
-        .order("last_seen_at", { ascending: false })
-        .limit(20000);
-      if (!error) {
-        for (const r of data || []) {
-          const code = String(r.link_code);
-          if (!lastSeenMap.has(code)) lastSeenMap.set(code, String(r.last_seen_at));
-        }
+      const stateRows: any[] = [];
+      for (let i = 0; i < codes.length; i += 100) {
+        const chunk = codes.slice(i, i + 100);
+        const { data, error } = await supabase
+          .from("discovery_exposure_link_state")
+          .select("link_code,last_seen_at")
+          .in("link_code", chunk)
+          .order("last_seen_at", { ascending: false })
+          .limit(20000);
+        if (error) continue;
+        stateRows.push(...(data || []));
+      }
+      for (const r of stateRows) {
+        const code = String(r.link_code);
+        if (!lastSeenMap.has(code)) lastSeenMap.set(code, String(r.last_seen_at));
       }
     }
 
@@ -586,6 +603,7 @@ serve(async (req) => {
           last_error: String(err),
           locked_at: null,
           lock_id: null,
+          raw: {},
           updated_at: now.toISOString(),
         });
         results.push({ linkCode: code, ok: false, status: res.status, correlationId, error: String(err) });
@@ -604,6 +622,7 @@ serve(async (req) => {
       const prevTitle = prev.title != null ? String(prev.title) : null;
       const prevImage = prev.image_url != null ? String(prev.image_url) : null;
       const prevUpdated = prev.updated_at_epic != null ? String(prev.updated_at_epic) : null;
+      const prevVersion = prev.version != null ? Number(prev.version) : null;
       const prevMod = prev.moderation_status != null ? String(prev.moderation_status) : null;
       const prevState = prev.link_state != null ? String(prev.link_state) : null;
 
@@ -615,6 +634,14 @@ serve(async (req) => {
       }
       if (prevUpdated && f.updatedAtEpic && prevUpdated !== String(f.updatedAtEpic)) {
         events.push({ link_code: code, event_type: "epic_updated", old_value: { updated: prevUpdated }, new_value: { updated: f.updatedAtEpic } });
+      }
+      if (prevVersion != null && f.version != null && prevVersion !== Number(f.version)) {
+        events.push({
+          link_code: code,
+          event_type: "version_changed",
+          old_value: { version: prevVersion },
+          new_value: { version: Number(f.version) },
+        });
       }
       if ((prevMod && f.moderationStatus && prevMod !== String(f.moderationStatus)) || (prevState && f.linkState && prevState !== String(f.linkState))) {
         events.push({
@@ -791,6 +818,13 @@ serve(async (req) => {
       } catch (_e) {
         // ignore
       }
+    }
+
+    // Keep command-center alerts fresh even when metadata collector is the active pipeline.
+    try {
+      await supabase.rpc("compute_system_alerts", {});
+    } catch (_e) {
+      // ignore
     }
 
     return json({

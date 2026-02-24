@@ -1,4 +1,4 @@
-# Ralph Implementation Checklist (Deploy by Lovable)
+# Ralph Implementation Checklist (Self-Hosted Stack)
 
 ## Scope
 This checklist is the implementation baseline to enable Ralph operations safely.

@@ -78,6 +78,22 @@ function avgRetentionCalc(retArr: any[] | undefined, key: string): number {
   return valid.reduce((s: number, r: any) => s + r[key], 0) / valid.length;
 }
 
+function normalizeRpcJson<T = Record<string, unknown>>(input: unknown): T {
+  if (Array.isArray(input)) {
+    if (input.length === 0) return {} as T;
+    return normalizeRpcJson<T>(input[0]);
+  }
+  if (typeof input === "string") {
+    try {
+      return normalizeRpcJson<T>(JSON.parse(input));
+    } catch {
+      return {} as T;
+    }
+  }
+  if (input && typeof input === "object") return input as T;
+  return {} as T;
+}
+
 function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
   const authHeader = (req.headers.get("Authorization") || "").trim();
   const apiKeyHeader = (req.headers.get("apikey") || "").trim();
@@ -104,6 +120,72 @@ function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
   )) return true;
 
   return isServiceRoleJwt(authToken) || isServiceRoleJwt(apiKeyHeader);
+}
+
+const EPIC_CREATOR_KEYS = new Set(["epic", "epic games", "epic labs", "fortnite"]);
+
+function normalizeCreator(v: unknown): string {
+  return String(v || "").trim().toLowerCase();
+}
+
+function isEpicCreator(v: unknown): boolean {
+  const n = normalizeCreator(v);
+  if (!n) return false;
+  if (EPIC_CREATOR_KEYS.has(n)) return true;
+  return n.includes("epic");
+}
+
+function extractCreator(item: any): string {
+  return String(
+    item?.creator ??
+    item?.creator_code ??
+    item?.support_code ??
+    item?.name ??
+    ""
+  );
+}
+
+function filterNonEpicItems(items: any[]): any[] {
+  return (items || []).filter((i: any) => !isEpicCreator(extractCreator(i)));
+}
+
+function sanitizeRankingsExcludeEpic(rankings: any): any {
+  const keysToFilter = [
+    "topUniquePlayers", "topTotalPlays", "topMinutesPlayed", "topAvgMinutesPerPlayer",
+    "topRetentionD1", "topRetentionD7", "topPlaysPerPlayer", "topFavsPer100",
+    "topRecPer100", "topFavsPerPlay", "topRecsPerPlay", "topStickinessD1",
+    "topStickinessD7", "topStickinessD1_UGC", "topStickinessD7_UGC",
+    "topRetentionAdjD1", "topRetentionAdjD7", "failedIslandsList", "revivedIslands",
+    "deadIslands", "topWeeklyGrowth", "topRisers", "topDecliners",
+    "topNewIslandsByPlays", "topNewIslandsByPlaysPublished", "topNewIslandsByCCU",
+    "mostUpdatedIslandsThisWeek", "mostUpdatedIslandsWeekly", "topCreatorsByPlays", "topCreatorsByPlayers",
+    "topCreatorsByMinutes", "topCreatorsByCCU", "creatorRisers", "creatorDecliners",
+    "creatorRankClimbers",
+  ];
+  for (const key of keysToFilter) {
+    if (Array.isArray(rankings?.[key])) {
+      rankings[key] = filterNonEpicItems(rankings[key]);
+    }
+  }
+  if (Array.isArray(rankings?.topPeakCCU_UGC)) {
+    rankings.topPeakCCU_UGC = filterNonEpicItems(rankings.topPeakCCU_UGC);
+  }
+  return rankings;
+}
+
+function buildEpicSpotlight(rankings: any): any {
+  const topPeak = (rankings?.topPeakCCU || []).filter((i: any) => isEpicCreator(extractCreator(i))).slice(0, 10);
+  const topPlays = (rankings?.topTotalPlays || []).filter((i: any) => isEpicCreator(extractCreator(i))).slice(0, 10);
+  const topUnique = (rankings?.topUniquePlayers || []).filter((i: any) => isEpicCreator(extractCreator(i))).slice(0, 10);
+  const risers = (rankings?.topRisers || []).filter((i: any) => isEpicCreator(extractCreator(i))).slice(0, 10);
+  const decliners = (rankings?.topDecliners || []).filter((i: any) => isEpicCreator(extractCreator(i))).slice(0, 10);
+  return {
+    topPeakCCU: topPeak,
+    topByPlays: topPlays,
+    topByUniquePlayers: topUnique,
+    risers,
+    decliners,
+  };
 }
 
 // Dynamic NLP stopwords for trend detection (no more hardcoded keywords)
@@ -178,7 +260,7 @@ function extractTrendingNgrams(
       peakCCU: t.peakCCU,
       avgD1: t.d1Count > 0 ? t.sumD1 / t.d1Count : 0,
       value: t.totalPlays,
-      label: `${t.islands.size} islands · ${t.totalPlays >= 1_000_000 ? (t.totalPlays / 1_000_000).toFixed(1) + "M" : t.totalPlays >= 1_000 ? (t.totalPlays / 1_000).toFixed(1) + "K" : t.totalPlays} plays`,
+      label: `${t.islands.size} islands Â· ${t.totalPlays >= 1_000_000 ? (t.totalPlays / 1_000_000).toFixed(1) + "M" : t.totalPlays >= 1_000 ? (t.totalPlays / 1_000).toFixed(1) + "K" : t.totalPlays} plays`,
     }))
     .sort((a, b) => b.totalPlays - a.totalPlays)
     .slice(0, maxResults);
@@ -1145,7 +1227,7 @@ serve(async (req) => {
         // SELF-HEAL: If no workers claimed anything but there are stale processing items,
         // force-requeue them immediately (60s timeout instead of 15min)
         if (totals.claimed === 0 && queueCounts.pending === 0 && queueCounts.processing > 0) {
-          console.log(`[metrics:v2:self-heal] 0 claimed, ${queueCounts.processing} stuck in processing — force-requeue with 60s stale`);
+          console.log(`[metrics:v2:self-heal] 0 claimed, ${queueCounts.processing} stuck in processing â€” force-requeue with 60s stale`);
           const { data: forceRequeued } = await supabase.rpc("requeue_stale_discover_queue", {
             p_report_id: reportId,
             p_stale_after_seconds: 60,
@@ -1156,7 +1238,7 @@ serve(async (req) => {
 
           // If force-requeue found nothing (items are very fresh), mark remaining processing as done
           if (forceCount === 0 && queueCounts.processing > 0) {
-            console.log(`[metrics:v2:self-heal] items too fresh to requeue — force-marking ${queueCounts.processing} as done`);
+            console.log(`[metrics:v2:self-heal] items too fresh to requeue â€” force-marking ${queueCounts.processing} as done`);
             const { error: forceErr } = await supabase
               .from("discover_report_queue")
               .update({ status: "done", last_error: "force_cleared: stuck processing", locked_at: null, updated_at: new Date().toISOString() })
@@ -1171,7 +1253,7 @@ serve(async (req) => {
 
         // SELF-HEAL: Force-clear error items with too many attempts (they'll never succeed)
         if (queueCounts.pending === 0 && queueCounts.processing === 0 && queueCounts.error > 0) {
-          console.log(`[metrics:v2:self-heal] ${queueCounts.error} error items remaining — marking as done to unblock finalize`);
+          console.log(`[metrics:v2:self-heal] ${queueCounts.error} error items remaining â€” marking as done to unblock finalize`);
           const { error: clearErr } = await supabase
             .from("discover_report_queue")
             .update({ status: "done", last_error: "auto_cleared: permanent error", locked_at: null, updated_at: new Date().toISOString() })
@@ -1414,7 +1496,7 @@ serve(async (req) => {
               };
             }
 
-            // Has data — compute all aggregates
+            // Has data â€” compute all aggregates
             const weekMpp = avgMetric(m.averageMinutesPerPlayer);
             const weekFavorites = sumMetric(m.favorites);
             const weekRecommends = sumMetric(m.recommendations);
@@ -1476,7 +1558,7 @@ serve(async (req) => {
           }
         }
 
-        // Process results — write-through to cache
+        // Process results â€” write-through to cache
         for (const r of results) {
           if (r.rateLimited) continue;
           processed++;
@@ -1586,7 +1668,7 @@ serve(async (req) => {
 
     // ======================== MODE: FINALIZE ========================
     if (mode === "finalize") {
-      console.log(`[finalize] Starting for report ${reportId} — SQL RPC mode`);
+      console.log(`[finalize] Starting for report ${reportId} â€” SQL RPC mode`);
 
       // Get report info
       const { data: reportInfo } = await supabase
@@ -1610,30 +1692,65 @@ serve(async (req) => {
         .maybeSingle();
       const prevReportId = prevReport?.id || null;
 
-      // Call ALL RPCs in parallel — this is the core improvement
-      const [kpisRes, rankingsRes, creatorsRes, categoriesRes, distributionsRes, trendingRes, moversRes, newIslandsRes, updatedRes, newCountRes] = await Promise.all([
+      // Run in waves to reduce DB contention and statement timeouts.
+      const [kpisRes, rankingsRes, creatorsRes, categoriesRes, distributionsRes, trendingRes] = await Promise.all([
         supabase.rpc("report_finalize_kpis", { p_report_id: reportId, p_prev_report_id: prevReportId }),
         supabase.rpc("report_finalize_rankings", { p_report_id: reportId, p_limit: 10 }),
         supabase.rpc("report_finalize_creators", { p_report_id: reportId, p_limit: 10 }),
         supabase.rpc("report_finalize_categories", { p_report_id: reportId, p_limit: 15 }),
         supabase.rpc("report_finalize_distributions", { p_report_id: reportId }),
         supabase.rpc("report_finalize_trending", { p_report_id: reportId, p_min_islands: 5, p_limit: 20 }),
-        prevReportId
-          ? supabase.rpc("report_finalize_wow_movers", { p_report_id: reportId, p_prev_report_id: prevReportId, p_limit: 10 })
-          : Promise.resolve({ data: { topRisers: [], topDecliners: [] }, error: null }),
+      ]);
+
+      const [newIslandsRes, updatedRes, newCountRes, versionEnrichmentRes] = await Promise.all([
         supabase.rpc("report_new_islands_by_launch", { p_report_id: reportId, p_week_start: weekStartDate, p_week_end: weekEndDate, p_limit: 50 }),
         supabase.rpc("report_most_updated_islands", { p_report_id: reportId, p_week_start: weekStartDate, p_week_end: weekEndDate, p_limit: 50 }),
         supabase.rpc("report_new_islands_by_launch_count", { p_report_id: reportId, p_week_start: weekStartDate, p_week_end: weekEndDate }),
+        supabase.rpc("report_version_enrichment", { p_report_id: reportId }),
       ]);
 
-      // Check for errors
-      for (const [name, res] of [["kpis", kpisRes], ["rankings", rankingsRes], ["creators", creatorsRes], ["categories", categoriesRes], ["distributions", distributionsRes], ["trending", trendingRes], ["movers", moversRes]] as const) {
-        if ((res as any).error) console.error(`[finalize] RPC ${name} error:`, (res as any).error.message);
+      const moversRes = prevReportId
+        ? await supabase.rpc("report_finalize_wow_movers", { p_report_id: reportId, p_prev_report_id: prevReportId, p_limit: 10 })
+        : { data: { topRisers: [], topDecliners: [] }, error: null };
+
+      const kpisData = normalizeRpcJson<any>(kpisRes.data);
+      const rankingsData = normalizeRpcJson<any>(rankingsRes.data);
+      const creatorsData = normalizeRpcJson<any>(creatorsRes.data);
+      const categoriesData = normalizeRpcJson<any>(categoriesRes.data);
+      const distributionsData = normalizeRpcJson<any>(distributionsRes.data);
+      const trendingData = normalizeRpcJson<any>(trendingRes.data);
+      const moversData = normalizeRpcJson<any>(moversRes.data);
+      const versionEnrichmentData = normalizeRpcJson<any>(versionEnrichmentRes.data);
+
+      // Fail-fast: do not persist partial payloads when critical RPCs fail.
+      const rpcFailures = (
+        [["kpis", kpisRes], ["rankings", rankingsRes], ["creators", creatorsRes], ["categories", categoriesRes], ["distributions", distributionsRes], ["trending", trendingRes], ["movers", moversRes], ["versionEnrichment", versionEnrichmentRes]] as const
+      ).filter(([_, res]) => Boolean((res as any)?.error));
+      if (rpcFailures.length > 0) {
+        const details = rpcFailures
+          .map(([name, res]) => `${name}:${(res as any).error?.message || "unknown"}`)
+          .join(" | ");
+        throw new Error(`[finalize] critical RPC failure(s): ${details}`);
+      }
+      if (
+        Object.keys(kpisData).length === 0 ||
+        Object.keys(rankingsData).length === 0 ||
+        Object.keys(creatorsData).length === 0 ||
+        Object.keys(categoriesData).length === 0 ||
+        Object.keys(distributionsData).length === 0 ||
+        Object.keys(trendingData).length === 0
+      ) {
+        throw new Error("[finalize] critical RPC returned empty payload");
       }
 
       const platformKPIs = {
-        ...(kpisRes.data || {}),
-        newMapsThisWeekPublished: newCountRes.data != null ? Number(newCountRes.data) : (kpisRes.data?.newMapsThisWeek || 0),
+        ...kpisData,
+        // Authoritative source is report_finalize_kpis (published_at_epic window).
+        // Keep count RPC only as fallback when KPI field is unavailable.
+        newMapsThisWeekPublished:
+          kpisData?.newMapsThisWeekPublished != null
+            ? Number(kpisData.newMapsThisWeekPublished)
+            : (newCountRes.data != null ? Number(newCountRes.data) : (kpisData?.newMapsThisWeek || 0)),
         baselineAvailable: Boolean(prevReportId),
       };
 
@@ -1644,33 +1761,44 @@ serve(async (req) => {
 
       const mostUpdatedItems = (updatedRes.data || []).map((r: any) => ({
         code: r.island_code, name: r.title || r.island_code, title: r.title,
-        creator: r.creator_code, category: r.category || "Fortnite UGC", value: r.week_plays || 0,
+        creator: r.creator_code,
+        category: r.category || "Fortnite UGC",
+        value: Number(r.version || 0),
+        version: r.version || null,
+        weekly_updates: Number(r.weekly_updates || 0),
+        week_plays: Number(r.week_plays || 0),
+        week_unique: Number(r.week_unique || 0),
       }));
+      const mostUpdatedWeekly = [...mostUpdatedItems]
+        .sort((a: any, b: any) =>
+          (b.weekly_updates || 0) - (a.weekly_updates || 0) ||
+          (b.version || 0) - (a.version || 0) ||
+          (b.week_plays || 0) - (a.week_plays || 0)
+        )
+        .slice(0, 50)
+        .map((i: any) => ({ ...i, value: Number(i.weekly_updates || 0) }));
 
       const computedRankings = {
-        ...(rankingsRes.data || {}),
-        ...(creatorsRes.data || {}),
-        ...(categoriesRes.data || {}),
-        ...(distributionsRes.data || {}),
-        ...(trendingRes.data || {}),
-        ...(moversRes.data || {}),
+        ...rankingsData,
+        ...creatorsData,
+        ...categoriesData,
+        ...distributionsData,
+        ...trendingData,
+        ...moversData,
         topNewIslandsByPlays: topNewItems,
         topNewIslandsByPlaysPublished: topNewItems,
         topNewIslandsByCCU: topNewItems.sort((a: any, b: any) => (b.value || 0) - (a.value || 0)).slice(0, 10),
         mostUpdatedIslandsThisWeek: mostUpdatedItems,
-        topAvgPeakCCU: (rankingsRes.data || {}).topPeakCCU || [],
-        topAvgPeakCCU_UGC: (rankingsRes.data || {}).topPeakCCU_UGC || [],
+        mostUpdatedIslandsWeekly: mostUpdatedWeekly,
+        versionEnrichment: versionEnrichmentData,
+        topAvgPeakCCU: rankingsData.topPeakCCU || [],
+        topAvgPeakCCU_UGC: rankingsData.topPeakCCU_UGC || [],
       };
 
-      // Update discover_reports
-      await supabase.from("discover_reports").update({
-        phase: "ai",
-        progress_pct: 95,
-        computed_rankings: computedRankings,
-        platform_kpis: platformKPIs,
-        island_count: platformKPIs.totalIslands || 0,
-        status: "analyzing",
-      }).eq("id", reportId);
+      // Keep global topPeakCCU with Epic, but strip Epic from UGC-oriented sections.
+      const epicSpotlight = buildEpicSpotlight(computedRankings);
+      sanitizeRankingsExcludeEpic(computedRankings);
+      computedRankings.epicSpotlight = epicSpotlight;
 
       // Create/update weekly_reports CMS entry as draft
       const weekKey = `${reportInfo.year}-W${String(reportInfo.week_number).padStart(2, "0")}`;
@@ -1690,11 +1818,14 @@ serve(async (req) => {
       }, { onConflict: "public_slug" }).select("id").single();
 
       if (!weeklyErr && weeklyRow?.id) {
-        // Best-effort: inject exposure data
-        try {
-          await supabase.functions.invoke("discover-exposure-report", { body: { weeklyReportId: weeklyRow.id } });
-        } catch (e) {
-          console.log(`[finalize] exposure enrichment skipped: ${e instanceof Error ? e.message : String(e)}`);
+        // Required: inject exposure data (sections 19-21 source of truth).
+        const exposureRes = await supabase.functions.invoke("discover-exposure-report", {
+          body: { weeklyReportId: weeklyRow.id, embedTimelineLimit: 0, includeCollections: false },
+        });
+        if (exposureRes.error || (exposureRes.data as any)?.success === false) {
+          throw new Error(
+            `[finalize] discover-exposure-report failed: ${exposureRes.error?.message || (exposureRes.data as any)?.error || "unknown error"}`,
+          );
         }
 
         // Build evidence packs
@@ -1735,11 +1866,42 @@ serve(async (req) => {
         } catch (e) {
           console.log(`[finalize] evidence packs warning: ${e instanceof Error ? e.message : String(e)}`);
         }
+
+        // Ensure version enrichment remains authoritative after exposure/evidence merges.
+        const finalVersionEnrichmentRes = await supabase.rpc("report_version_enrichment", { p_report_id: reportId });
+        if (finalVersionEnrichmentRes.error) {
+          throw new Error(`[finalize] report_version_enrichment failed: ${finalVersionEnrichmentRes.error.message}`);
+        }
+        const finalVersionEnrichment = normalizeRpcJson<any>(finalVersionEnrichmentRes.data);
+        if (Object.keys(finalVersionEnrichment).length > 0) {
+          computedRankings.versionEnrichment = finalVersionEnrichment;
+          const { data: wrVe } = await supabase
+            .from("weekly_reports")
+            .select("id,rankings_json")
+            .eq("id", weeklyRow.id)
+            .single();
+          if (wrVe?.rankings_json) {
+            const merged = { ...(wrVe.rankings_json || {}), versionEnrichment: finalVersionEnrichment };
+            await supabase.from("weekly_reports").update({ rankings_json: merged }).eq("id", weeklyRow.id);
+          }
+        }
       } else if (weeklyErr) {
-        console.log(`[finalize] weekly_reports upsert failed: ${weeklyErr.message}`);
+        throw new Error(`[finalize] weekly_reports upsert failed: ${weeklyErr.message}`);
+      } else {
+        throw new Error("[finalize] weekly_reports upsert returned empty row");
       }
 
-      // Update discover_islands table (metadata sync — best-effort, limited batch)
+      // Persist report state only after weekly snapshot + exposure enrichment succeed.
+      await supabase.from("discover_reports").update({
+        phase: "ai",
+        progress_pct: 95,
+        computed_rankings: computedRankings,
+        platform_kpis: platformKPIs,
+        island_count: platformKPIs.totalIslands || 0,
+        status: "analyzing",
+      }).eq("id", reportId);
+
+      // Update discover_islands table (metadata sync â€” best-effort, limited batch)
       try {
         const { data: metaRows } = await supabase
           .from("discover_report_islands")

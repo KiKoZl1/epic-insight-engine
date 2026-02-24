@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useTranslation } from "react-i18next";
@@ -6,7 +7,7 @@ interface AiNarrativeProps {
   text: string | null | undefined;
 }
 
-export function AiNarrative({ text }: AiNarrativeProps) {
+function AiNarrativeBase({ text }: AiNarrativeProps) {
   const { t } = useTranslation();
   if (!text) return null;
 
@@ -22,3 +23,5 @@ export function AiNarrative({ text }: AiNarrativeProps) {
     </div>
   );
 }
+
+export const AiNarrative = memo(AiNarrativeBase);

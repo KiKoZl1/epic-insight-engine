@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "owner": "ralph",
   "notes": "Only set passes=true after end-to-end verification.",
   "features": [
@@ -13,6 +13,8 @@
         "src/components/ZipUploader.tsx",
         "src/lib/parsing/zipProcessor.ts"
       ],
+      "status": "active",
+      "failed_attempts": 0,
       "passes": false
     },
     {
@@ -25,6 +27,8 @@
         "src/components/ZipUploader.tsx",
         "src/lib/parsing/metricsEngine.ts"
       ],
+      "status": "active",
+      "failed_attempts": 0,
       "passes": false
     },
     {
@@ -36,6 +40,8 @@
       "target_files": [
         "src/pages/IslandLookup.tsx"
       ],
+      "status": "active",
+      "failed_attempts": 0,
       "passes": false
     },
     {
@@ -47,6 +53,8 @@
       "target_files": [
         "src/pages/IslandLookup.tsx"
       ],
+      "status": "active",
+      "failed_attempts": 0,
       "passes": false
     },
     {
@@ -60,6 +68,8 @@
         "src/pages/Index.tsx",
         "src/pages/admin/AdminOverview.tsx"
       ],
+      "status": "active",
+      "failed_attempts": 0,
       "passes": false
     }
   ]

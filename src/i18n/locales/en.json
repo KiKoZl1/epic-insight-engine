@@ -224,6 +224,8 @@
     "topD7": "Top D7 Retention",
     "topCreatorsByPlays": "Top Creators by Plays",
     "topCreatorsByMinutes": "Top Creators by Minutes",
+    "topCreatorsByPlayers": "Top Creators by Players",
+    "topCreatorsByCCU": "Top Creators by Peak CCU",
     "topAvgMinutes": "Top Avg Minutes/Player",
     "topFavorites": "Top Favorites",
     "playsPerPlayer": "Plays / Unique Player",

@@ -5,7 +5,7 @@ This layer upgrades Ralph from operational memory only to hybrid semantic retrie
 ## Components
 
 - `public.ralph_memory_documents`
-  - chunked project/domain documents with optional embeddings (`vector(1536)`).
+  - chunked project/domain documents with optional embeddings.
 - `public.search_ralph_memory_documents(...)`
   - hybrid scoring:
     - vector similarity (80%)
@@ -24,12 +24,13 @@ npm run ralph:memory:ingest -- --paths=docs,src/pages --dry-run=true
 Real ingest with embeddings:
 
 ```powershell
-npm run ralph:memory:ingest -- --paths=docs,src/pages,src/components --scope=project,product,discover --use-embeddings=true --embedding-model=text-embedding-3-small
+npm run ralph:memory:ingest -- --paths=docs,src/pages,src/components --scope=project,product,discover --use-embeddings=true --embedding-provider=nvidia --embedding-model=nvidia/nv-embedqa-e5-v5
 ```
 
 Notes:
 - Requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`.
-- Embeddings require `OPENAI_API_KEY`.
+- Embeddings with NVIDIA require `NVIDIA_API_KEY`.
+- Current runner has text-search fallback when vector search fails (dimension/provider mismatch).
 
 ## Query memory
 
@@ -46,7 +47,8 @@ Extra flags:
 - `--semantic-match-count=8`
 - `--semantic-min-importance=40`
 - `--semantic-use-embeddings=true`
-- `--semantic-embedding-model=text-embedding-3-small`
+- `--semantic-embedding-provider=nvidia`
+- `--semantic-embedding-model=nvidia/nv-embedqa-e5-v5`
 
 ## Validation SQL
 

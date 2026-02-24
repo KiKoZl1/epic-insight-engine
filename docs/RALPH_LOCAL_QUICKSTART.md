@@ -19,13 +19,9 @@ $env:SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
 
 Runner also loads a local `.env` file automatically when variables are not present in the shell.
 
-Optional for LLM mode:
+Required for LLM mode (NVIDIA/Kimi):
 
 ```powershell
-$env:OPENAI_API_KEY="<openai-key>"
-# or
-$env:ANTHROPIC_API_KEY="<anthropic-key>"
-# or
 $env:NVIDIA_API_KEY="<nvidia-key>"
 ```
 
@@ -51,18 +47,6 @@ Expected:
 
 ## 4) Run with LLM (real loop)
 
-OpenAI:
-
-```powershell
-scripts\run-ralph-local-runner.bat --mode=qa --dry-run=false --llm-provider=openai --llm-model=gpt-4.1-mini --scope=csv,lookup --max-iterations=3
-```
-
-Anthropic:
-
-```powershell
-scripts\run-ralph-local-runner.bat --mode=qa --dry-run=false --llm-provider=anthropic --llm-model=claude-3-5-sonnet-latest --scope=csv,lookup --max-iterations=3
-```
-
 NVIDIA (Kimi):
 
 ```powershell
@@ -74,35 +58,39 @@ scripts\run-ralph-local-runner.bat --mode=qa --dry-run=false --llm-provider=nvid
 Propose edit operations only (no code changes applied):
 
 ```powershell
-scripts\run-ralph-local-runner.bat --mode=dev --dry-run=false --llm-provider=openai --llm-model=gpt-4.1-mini --scope=csv,lookup --max-iterations=2 --edit-mode=propose --edit-max-files=2 --edit-allowlist=src/,index.html,docs/
+scripts\run-ralph-local-runner.bat --mode=dev --dry-run=false --llm-provider=nvidia --llm-model=moonshotai/kimi-k2.5 --scope=csv,lookup --max-iterations=2 --edit-mode=propose --edit-max-files=2 --edit-allowlist=src/,index.html,docs/
 ```
 
 Apply edit operations automatically (requires non-main branch by default):
 
 ```powershell
 git checkout -b feat/ralph-autofix-test
-scripts\run-ralph-local-runner.bat --mode=dev --dry-run=false --llm-provider=openai --llm-model=gpt-4.1-mini --scope=csv,lookup --max-iterations=2 --edit-mode=apply --edit-max-files=2 --edit-allowlist=src/,index.html,docs/ --gate-build=true --gate-test=true
+scripts\run-ralph-local-runner.bat --mode=dev --dry-run=false --llm-provider=nvidia --llm-model=moonshotai/kimi-k2.5 --scope=csv,lookup --max-iterations=2 --edit-mode=apply --edit-max-files=2 --edit-allowlist=src/,index.html,docs/ --gate-build=true --gate-test=true
 ```
 
 Use a dedicated prompt file:
 
 ```powershell
-scripts\run-ralph-local-runner.bat --mode=dev --dry-run=false --llm-provider=openai --llm-model=gpt-4.1-mini --scope=csv,lookup --max-iterations=2 --edit-mode=apply --edit-max-files=2 --edit-allowlist=src/,index.html,docs/ --prompt-file=docs/RALPH_SITE_IMPROVEMENT_PROMPT.md --gate-build=true --gate-test=true
+scripts\run-ralph-local-runner.bat --mode=dev --dry-run=false --llm-provider=nvidia --llm-model=moonshotai/kimi-k2.5 --scope=csv,lookup --max-iterations=2 --edit-mode=apply --edit-max-files=2 --edit-allowlist=src/,index.html,docs/ --prompt-file=docs/RALPH_SITE_IMPROVEMENT_PROMPT.md --gate-build=true --gate-test=true
 ```
 
 Notes:
 - `--edit-mode=apply` is blocked on `main/master` unless `--require-non-main-branch=false`.
 - Proposed operations are saved under `scripts/_out/ralph_local_runner/run_*/patches/*_ops.json`.
 - Scope control is enforced by allowlist and max touched files.
-- Apply guard is enabled: repeated build failure signature (2x) auto-downgrades `apply` to `propose` in subsequent runs.
+- Apply guard is enabled by default:
+  - repeated build failure signature (2x) auto-downgrades `apply` to `propose`
+  - `apply` only unlocks after stable propose history (`--apply-require-stable-propose-runs`, default `5`)
+  - repeated feature loop auto-blocks current feature and rotates to next backlog item
 - Safer patch rules are enforced in apply mode:
   - `--apply-min-find-chars` (default `120`)
   - find text must be unique and line-bounded (prevents mid-token corruption).
 - Semantic embeddings provider can be controlled with:
   - `--semantic-embedding-provider=auto|nvidia|openai|none`
   - `--semantic-embedding-model=<model-id>`
-- In `auto`, runner prefers NVIDIA embeddings when `NVIDIA_API_KEY` exists, then OpenAI, then text-only fallback.
-- Current NVIDIA-safe default model: `baai/bge-m3`.
+- Default stack is now NVIDIA-only (`--lock-to-nvidia=true`):
+  - chat model: `moonshotai/kimi-k2.5`
+  - embedding model: `nvidia/nv-embedqa-e5-v5`
 - In `--edit-mode=apply`, if zero operations are applied, run status is `failed`.
 - Runner reads `--feature-file` and logs each session to `--progress-file`.
 - Feature auto-pass update is enabled by default (`--auto-mark-feature-pass=true`) and only occurs when:
@@ -149,13 +137,13 @@ select public.get_ralph_context_pack(array['csv','lookup'], 72, 20);
 1. Run dry mode with 3 iterations.
 2. Verify rows + health JSON.
 3. Run one LLM mode run with 1-2 iterations.
-4. Decide if worth deploying orchestrator via Lovable.
+4. Decide if worth deploying orchestrator to your own scheduler/host.
 
 ## 8) Autonomous loop (60 minutes / every 5 minutes)
 
 ```powershell
 git checkout -b feat/ralph-loop-60m
-scripts\run-ralph-loop.bat -Mode dev -DurationMinutes 60 -IntervalSeconds 300 -MaxIterations 2 -EditMode apply -EditMaxFiles 2 -EditAllowlist "src/,index.html,docs/" -LlmProvider openai -LlmModel gpt-4.1-mini -Scope "csv,lookup" -PromptFile "docs/RALPH_SITE_IMPROVEMENT_PROMPT.md"
+scripts\run-ralph-loop.bat -Mode dev -Profile propose -DurationMinutes 60 -IntervalSeconds 300 -MaxIterations 1 -EditMaxFiles 1 -EditAllowlist "src/,docs/" -LlmProvider nvidia -LlmModel moonshotai/kimi-k2.5 -Scope "csv,lookup" -PromptFile "docs/RALPH_SITE_IMPROVEMENT_PROMPT.md"
 ```
 
 The loop writes a consolidated summary in:

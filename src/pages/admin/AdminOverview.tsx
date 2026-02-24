@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -240,6 +240,18 @@ interface RalphMemoryData {
   topItemImportance: number | null;
 }
 
+interface RalphOpsData {
+  proposeRuns: number;
+  applyRuns: number;
+  promotableRuns: number;
+  guardActivations: number;
+  blockedTransitions: number;
+  buildGateFails: number;
+  opsApplyFails: number;
+  latestFailureSignature: string | null;
+  latestActiveFeature: string | null;
+}
+
 interface CronJob {
   jobid: number; name: string; schedule: string; active: boolean;
 }
@@ -250,6 +262,11 @@ interface SystemAlert {
   message: string;
   details: any;
   updated_at: string;
+}
+
+interface MonitoringHeartbeat {
+  exposureTickAt: string | null;
+  metadataEventAt: string | null;
 }
 
 interface GenerationState {
@@ -274,6 +291,13 @@ const INITIAL_GEN: GenerationState = {
 
 function getAlertInfo(alert: SystemAlert): { title: string; description: string; detail?: string; action?: string } {
   const d = alert.details || {};
+  const ageFromIso = (iso: string | null | undefined): number | null => {
+    if (!iso) return null;
+    const ts = new Date(iso).getTime();
+    if (!Number.isFinite(ts)) return null;
+    const age = Math.floor((Date.now() - ts) / 1000);
+    return age >= 0 ? age : null;
+  };
 
   switch (alert.alert_key) {
     case "exposure_stale": {
@@ -291,8 +315,10 @@ function getAlertInfo(alert: SystemAlert): { title: string; description: string;
     }
     case "exposure_data_flow": {
       const ticks1h = Number(d.ticks_1h || 0);
-      const lastAge = d.last_tick_age_seconds != null ? Number(d.last_tick_age_seconds) : null;
-      const ageStr = lastAge != null ? (lastAge < 60 ? `${lastAge}s` : lastAge < 3600 ? `${Math.round(lastAge / 60)}min` : `${Math.round(lastAge / 3600)}h`) : "nunca";
+      const lastAge = d.last_tick_age_seconds != null ? Number(d.last_tick_age_seconds) : ageFromIso(d.last_tick);
+      const ageStr = lastAge != null
+        ? (lastAge < 60 ? `${lastAge}s` : lastAge < 3600 ? `${Math.round(lastAge / 60)}min` : `${Math.round(lastAge / 3600)}h`)
+        : (ticks1h > 0 ? "recente" : "nunca");
       if (alert.severity === "ok") return {
         title: "Exposure Data Flow",
         description: `${ticks1h} ticks OK na última hora. Último: ${ageStr} atrás.`,
@@ -306,8 +332,10 @@ function getAlertInfo(alert: SystemAlert): { title: string; description: string;
     }
     case "metadata_data_flow": {
       const fetched1h = Number(d.fetched_1h || 0);
-      const lastAge = d.last_fetch_age_seconds != null ? Number(d.last_fetch_age_seconds) : null;
-      const ageStr = lastAge != null ? (lastAge < 60 ? `${lastAge}s` : lastAge < 3600 ? `${Math.round(lastAge / 60)}min` : `${Math.round(lastAge / 3600)}h`) : "nunca";
+      const lastAge = d.last_fetch_age_seconds != null ? Number(d.last_fetch_age_seconds) : ageFromIso(d.last_fetch);
+      const ageStr = lastAge != null
+        ? (lastAge < 60 ? `${lastAge}s` : lastAge < 3600 ? `${Math.round(lastAge / 60)}min` : `${Math.round(lastAge / 3600)}h`)
+        : (fetched1h > 0 ? "recente" : "nunca");
       if (alert.severity === "ok") return {
         title: "Metadata Data Flow",
         description: `${fetched1h} fetches na última hora. Último: ${ageStr} atrás.`,
@@ -369,8 +397,13 @@ function getAlertInfo(alert: SystemAlert): { title: string; description: string;
     }
     case "link_edges_coverage": {
       const parents = Number(d.parents_resolved || 0);
-      const collections = Number(d.collections_total || 0);
+      const collections = Number(d.collections_total ?? d.collections_resolvable ?? 0);
       const edges = Number(d.edges_total || 0);
+      if (collections === 0) return {
+        title: "Link Edges Coverage",
+        description: "Sem collections resolvÃ­veis no recorte atual.",
+        detail: "A cobertura serÃ¡ calculada assim que houver collections set_* ativas na janela.",
+      };
       if (alert.severity === "ok") return {
         title: "Link Edges Coverage",
         description: `${parents} collections com edges de ${collections} total (${edges} edges).`,
@@ -437,6 +470,10 @@ export default function AdminOverview() {
 
   // System alerts (materialized in DB by orchestrator)
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
+  const [monitorHeartbeat, setMonitorHeartbeat] = useState<MonitoringHeartbeat>({
+    exposureTickAt: null,
+    metadataEventAt: null,
+  });
 
   // Weekly pipeline (preserved)
   const [reports, setReports] = useState<any[]>([]);
@@ -658,12 +695,12 @@ export default function AdminOverview() {
           .from("ralph_runs" as any)
           .select("id,mode,status,started_at,ended_at,updated_at,error_message,target_scope,summary")
           .order("started_at", { ascending: false })
-          .limit(8),
+          .limit(24),
         supabase
           .from("ralph_actions" as any)
           .select("id,run_id,step_index,phase,tool_name,target,status,latency_ms,created_at,details")
           .order("created_at", { ascending: false })
-          .limit(10),
+          .limit(30),
         supabase
           .from("ralph_eval_results" as any)
           .select("id,run_id,suite,metric,value,threshold,pass,created_at")
@@ -692,7 +729,7 @@ export default function AdminOverview() {
           .neq("status", "rejected"),
         supabase
           .from("ralph_memory_items" as any)
-          .select("label,importance")
+          .select("summary,importance")
           .order("importance", { ascending: false })
           .order("last_seen_at", { ascending: false })
           .limit(1)
@@ -771,7 +808,7 @@ export default function AdminOverview() {
         itemsTotal: Number((memoryItemsRes as any)?.count || 0),
         docsTotal: Number((memoryDocsRes as any)?.count || 0),
         decisionsOpen: Number((openDecisionsRes as any)?.count || 0),
-        topItemLabel: (topMemoryItemRes as any)?.data?.label || null,
+        topItemLabel: (topMemoryItemRes as any)?.data?.summary || null,
         topItemImportance: (topMemoryItemRes as any)?.data?.importance != null
           ? Number((topMemoryItemRes as any).data.importance)
           : null,
@@ -885,12 +922,33 @@ export default function AdminOverview() {
   }, [toast, addLog, fetchCrons]);
 
   const fetchAlerts = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("system_alerts_current" as any)
-      .select("alert_key,severity,message,details,updated_at")
-      .order("alert_key", { ascending: true });
-    if (error) return;
-    setAlerts((data || []) as any);
+    const [alertsRes, exposureBeatRes, metadataBeatRes] = await Promise.all([
+      supabase
+        .from("system_alerts_current" as any)
+        .select("alert_key,severity,message,details,updated_at")
+        .order("alert_key", { ascending: true }),
+      supabase
+        .from("discovery_exposure_ticks")
+        .select("ts_start")
+        .order("ts_start", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("discover_link_metadata_events")
+        .select("created_at")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    if (!alertsRes.error) {
+      setAlerts((alertsRes.data || []) as any);
+    }
+
+    setMonitorHeartbeat({
+      exposureTickAt: (exposureBeatRes.data as any)?.ts_start || null,
+      metadataEventAt: (metadataBeatRes.data as any)?.created_at || null,
+    });
   }, []);
 
   const fetchReports = useCallback(async () => {
@@ -1066,6 +1124,33 @@ export default function AdminOverview() {
       : ralphHealth.openIncidents > 0 || ralphHealth.runsFailed > 0 || ralphHealth.successRatePct < 80
         ? "warn"
         : "ok";
+  const ralphOps: RalphOpsData = useMemo(() => {
+    const proposeRuns = ralphRuns.filter((r) => String(r.summary?.edit_mode_effective || "").toLowerCase() === "propose").length;
+    const applyRuns = ralphRuns.filter((r) => String(r.summary?.edit_mode_effective || "").toLowerCase() === "apply").length;
+    const promotableRuns = ralphRuns.filter((r) => String(r.status || "").toLowerCase() === "promotable").length;
+    const guardActivations = ralphActions.filter((a) => a.phase === "guard" && a.status === "warn").length;
+    const blockedTransitions = ralphRuns.filter((r) => Boolean(r.summary?.feature_transition?.blocked_feature_id)).length;
+    const buildGateFails = ralphIncidents.filter((i) => i.incident_type === "build_gate_failed" && !i.resolved).length;
+    const opsApplyFails = ralphIncidents.filter((i) => i.incident_type === "ops_apply_failed" && !i.resolved).length;
+    const latestBuildFailAction = ralphActions.find((a) =>
+      a.phase === "gate" &&
+      a.target === "build" &&
+      a.status === "error" &&
+      typeof a.details?.failure_signature === "string"
+    );
+    const latestRunWithFeature = ralphRuns.find((r) => typeof r.summary?.active_feature?.title === "string");
+    return {
+      proposeRuns,
+      applyRuns,
+      promotableRuns,
+      guardActivations,
+      blockedTransitions,
+      buildGateFails,
+      opsApplyFails,
+      latestFailureSignature: latestBuildFailAction?.details?.failure_signature || null,
+      latestActiveFeature: latestRunWithFeature?.summary?.active_feature?.title || null,
+    };
+  }, [ralphRuns, ralphActions, ralphIncidents]);
   const reportHealth: HealthStatus = generating ? "ok" : genState.phase === "done" ? "ok" : "idle";
   const cronActiveCount = crons.filter((c) => c.active).length;
   const cronHealth: HealthStatus = crons.length === 0
@@ -1086,10 +1171,28 @@ export default function AdminOverview() {
     alertBad.length === 0 ? "ok" : alertBad.some(a => a.severity === "error") ? "error" : "warn";
 
   // Monitoring health: check if alerts themselves are stale (>5 min old)
+  const ageSeconds = (iso: string | null | undefined): number | null => {
+    if (!iso) return null;
+    const ts = new Date(iso).getTime();
+    if (!Number.isFinite(ts)) return null;
+    const age = (Date.now() - ts) / 1000;
+    return age >= 0 ? age : null;
+  };
   const alertsMaxAge = alerts.length > 0
     ? Math.max(...alerts.map(a => a.updated_at ? (Date.now() - new Date(a.updated_at).getTime()) / 1000 : 999999))
     : 999999;
-  const monitoringOffline = alerts.length === 0 || alertsMaxAge > 300; // 5 minutes
+  const freshestSignalAges = [
+    ageSeconds(monitorHeartbeat.exposureTickAt),
+    ageSeconds(monitorHeartbeat.metadataEventAt),
+    ageSeconds(lookup?.lastOkAt || null),
+    ageSeconds(ralphHealth?.lastRunAt || null),
+  ].filter((v): v is number => v != null);
+  const freshestSignalAge = freshestSignalAges.length > 0 ? Math.min(...freshestSignalAges) : null;
+  const alertsStale = alerts.length === 0 || alertsMaxAge > 300;
+  const hasFreshSignal = freshestSignalAge != null && freshestSignalAge <= 300;
+  const monitoringOffline = alertsStale && !hasFreshSignal;
+  const monitoringLagging = alertsStale && hasFreshSignal;
+  const monitoringStatus: HealthStatus = monitoringOffline ? "error" : monitoringLagging ? "warn" : alertStatus;
 
   const phaseLabel: Record<string, string> = {
     idle: "", catalog: "Catalogando", metrics: "Coletando metricas",
@@ -1125,7 +1228,7 @@ export default function AdminOverview() {
             <div className="flex items-center gap-1.5"><HealthDot status={lookupHealth} label={`${lookup?.ok1h || 0}/${lookup?.calls1h || 0} lookup ok (1h)`} /><span className="text-muted-foreground">Lookup</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={ralphHealthStatus} label={`${ralphHealth?.runsRunning || 0} running · ${ralphHealth?.openIncidents || 0} incidentes`} /><span className="text-muted-foreground">Ralph</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={reportHealth} label={generating ? "Em andamento" : "Idle"} /><span className="text-muted-foreground">Report</span></div>
-            <div className="flex items-center gap-1.5"><HealthDot status={monitoringOffline ? "error" : alertStatus} label={monitoringOffline ? "Monitoramento offline!" : `${alertBad.length} alertas ativos`} /><span className="text-muted-foreground">Alertas</span></div>
+            <div className="flex items-center gap-1.5"><HealthDot status={monitoringStatus} label={monitoringOffline ? "Monitoramento offline" : monitoringLagging ? "Monitoramento com atraso de refresh" : `${alertBad.length} alertas ativos`} /><span className="text-muted-foreground">Alertas</span></div>
             <div className="flex items-center gap-1.5"><HealthDot status={cronHealth} label={`${cronActiveCount}/${crons.length || 0} ativos`} /><span className="text-muted-foreground">Crons</span></div>
           </div>
         </CardContent>
@@ -1151,6 +1254,25 @@ export default function AdminOverview() {
             </div>
           </CardContent>
          </Card>
+       )}
+      {monitoringLagging && (
+        <Card className="border-yellow-500/40 bg-yellow-500/10">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-yellow-500 shrink-0" />
+              <div>
+                <p className="font-semibold text-sm text-yellow-600">Monitoramento com atraso de refresh</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Alertas materializados estao atrasados ({Math.round(alertsMaxAge / 60)}min), mas ha atividade recente nos pipelines
+                  {freshestSignalAge != null ? ` (ultimo sinal ha ${Math.round(freshestSignalAge / 60)}min).` : "."}
+                </p>
+                <p className="text-xs text-yellow-700 font-medium mt-1">
+                  Acao recomendada: validar cron de refresh de alertas e logs da funcao compute_system_alerts.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* ── Alerts Section (always visible) ──────────────── */}
@@ -1487,6 +1609,13 @@ export default function AdminOverview() {
               />
             </div>
 
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <StatCard icon={CheckCircle2} label="Propose runs" value={fmt(ralphOps.proposeRuns)} />
+              <StatCard icon={Zap} label="Apply runs" value={fmt(ralphOps.applyRuns)} />
+              <StatCard icon={ShieldAlert} label="Guard activations" value={fmt(ralphOps.guardActivations)} color={ralphOps.guardActivations > 0 ? "warning" : "default"} />
+              <StatCard icon={AlertTriangle} label="Blocked features" value={fmt(ralphOps.blockedTransitions)} color={ralphOps.blockedTransitions > 0 ? "warning" : "default"} />
+            </div>
+
             <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5 text-xs">
               <p className="font-semibold text-sm">Context / Learning</p>
               <p className="text-muted-foreground">
@@ -1496,6 +1625,15 @@ export default function AdminOverview() {
               </p>
               <p className="text-muted-foreground">
                 Runs tracked: {ralphRuns.length} | Actions tracked: {ralphActions.length} | Evals tracked: {ralphEvals.length}
+              </p>
+              <p className="text-muted-foreground">
+                Feature ativa recente: <span className="font-mono">{ralphOps.latestActiveFeature || "n/a"}</span>
+              </p>
+              <p className="text-muted-foreground">
+                Build fail signature recente: <span className="font-mono">{ralphOps.latestFailureSignature || "n/a"}</span>
+              </p>
+              <p className="text-muted-foreground">
+                Incidentes abertos: build_gate_failed={ralphOps.buildGateFails} | ops_apply_failed={ralphOps.opsApplyFails}
               </p>
             </div>
 
@@ -1521,8 +1659,16 @@ export default function AdminOverview() {
                         {Array.isArray(r.target_scope) && r.target_scope.length > 0 && (
                           <p className="text-muted-foreground">scope: {r.target_scope.join(", ")}</p>
                         )}
+                        {r.summary?.edit_mode_effective && (
+                          <p className="text-muted-foreground">edit_mode: {String(r.summary.edit_mode_effective)}</p>
+                        )}
                         {r.summary?.active_feature?.title && (
                           <p className="text-muted-foreground">feature: {String(r.summary.active_feature.title)}</p>
+                        )}
+                        {r.summary?.feature_transition?.blocked_feature_id && (
+                          <p className="text-yellow-600 mt-1">
+                            feature blocked: {String(r.summary.feature_transition.blocked_feature_id).slice(0, 8)}...
+                          </p>
                         )}
                         {r.error_message && <p className="text-destructive mt-1 line-clamp-2">{r.error_message}</p>}
                       </div>

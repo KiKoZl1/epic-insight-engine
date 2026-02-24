@@ -2,18 +2,27 @@ param(
   [string]$Mode = "dev",
   [int]$DurationMinutes = 60,
   [int]$IntervalSeconds = 300,
-  [int]$MaxIterations = 2,
-  [string]$EditMode = "apply",
+  [ValidateSet("learn", "propose", "apply")]
+  [string]$Profile = "propose",
+  [int]$MaxIterations = 1,
+  [string]$EditMode = "",
   [int]$EditMaxFiles = 2,
   [string]$EditAllowlist = "src/,index.html,docs/",
-  [bool]$GateLint = $false,
-  [bool]$GateBuild = $true,
-  [bool]$GateTest = $true,
-  [string]$LlmProvider = "openai",
-  [string]$LlmModel = "gpt-4.1-mini",
+  [string]$GateLint = "0",
+  [string]$GateBuild = "1",
+  [string]$GateTest = "1",
+  [string]$LlmProvider = "nvidia",
+  [string]$LlmModel = "moonshotai/kimi-k2.5",
   [string]$Scope = "csv,lookup",
   [string]$PromptFile = "",
-  [int]$StopAfterConsecutiveFailures = 2
+  [int]$StopAfterConsecutiveFailures = 12,
+  [string]$SemanticEmbeddingProvider = "nvidia",
+  [string]$SemanticEmbeddingModel = "nvidia/nv-embedqa-e5-v5",
+  [string]$LockToNvidia = "1",
+  [int]$ApplyRequireStableProposeRuns = 5,
+  [int]$FeatureMaxFailedAttempts = 2,
+  [int]$FeatureLoopSignatureThreshold = 2,
+  [string]$RotateFeatureOnLoop = "1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,10 +32,35 @@ function New-RunStamp {
   return "{0}{1:00}{2:00}_{3:00}{4:00}{5:00}" -f $d.Year, $d.Month, $d.Day, $d.Hour, $d.Minute, $d.Second
 }
 
+function To-BoolString([string]$raw, [bool]$fallback = $false) {
+  if ([string]::IsNullOrWhiteSpace($raw)) { return ($fallback.ToString().ToLower()) }
+  $s = $raw.Trim().ToLower()
+  if ($s -in @("1","true","yes","y","on")) { return "true" }
+  if ($s -in @("0","false","no","n","off")) { return "false" }
+  return ($fallback.ToString().ToLower())
+}
+
 $repo = Get-Location
 $outRoot = Join-Path $repo "scripts\_out\ralph_loop"
 $runDir = Join-Path $outRoot ("run_" + (New-RunStamp))
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
+
+$resolvedEditMode = if (-not [string]::IsNullOrWhiteSpace($EditMode)) {
+  $EditMode.Trim().ToLower()
+} else {
+  switch ($Profile) {
+    "learn" { "off" }
+    "apply" { "apply" }
+    default { "propose" }
+  }
+}
+if ($resolvedEditMode -notin @("off", "propose", "apply")) { $resolvedEditMode = "propose" }
+
+$gateLintBool = To-BoolString $GateLint $false
+$gateBuildBool = To-BoolString $GateBuild $true
+$gateTestBool = To-BoolString $GateTest $true
+$lockToNvidiaBool = To-BoolString $LockToNvidia $true
+$rotateFeatureOnLoopBool = To-BoolString $RotateFeatureOnLoop $true
 
 $until = (Get-Date).AddMinutes($DurationMinutes)
 $run = 0
@@ -45,12 +79,19 @@ while ((Get-Date) -lt $until) {
     "--llm-model=$LlmModel",
     "--scope=$Scope",
     "--max-iterations=$MaxIterations",
-    "--edit-mode=$EditMode",
+    "--edit-mode=$resolvedEditMode",
     "--edit-max-files=$EditMaxFiles",
     "--edit-allowlist=$EditAllowlist",
-    "--gate-lint=$GateLint",
-    "--gate-build=$GateBuild",
-    "--gate-test=$GateTest"
+    "--gate-lint=$gateLintBool",
+    "--gate-build=$gateBuildBool",
+    "--gate-test=$gateTestBool",
+    "--semantic-embedding-provider=$SemanticEmbeddingProvider",
+    "--semantic-embedding-model=$SemanticEmbeddingModel",
+    "--lock-to-nvidia=$lockToNvidiaBool",
+    "--apply-require-stable-propose-runs=$ApplyRequireStableProposeRuns",
+    "--feature-max-failed-attempts=$FeatureMaxFailedAttempts",
+    "--feature-loop-signature-threshold=$FeatureLoopSignatureThreshold",
+    "--rotate-feature-on-loop=$rotateFeatureOnLoopBool"
   )
   if ($PromptFile) {
     $runnerArgs += "--prompt-file=$PromptFile"
@@ -118,7 +159,8 @@ $summaryOut = [pscustomobject]@{
   duration_minutes = $DurationMinutes
   interval_seconds = $IntervalSeconds
   mode = $Mode
-  edit_mode = $EditMode
+  profile = $Profile
+  edit_mode = $resolvedEditMode
   llm_provider = $LlmProvider
   llm_model = $LlmModel
   scope = $Scope

@@ -20,6 +20,25 @@ function mustEnv(key: string): string {
   return v;
 }
 
+async function requireAdminOrEditor(req: Request, supabase: any): Promise<string> {
+  const auth = req.headers.get("Authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+  if (!token) throw new Error("forbidden");
+
+  const { data: u, error: uErr } = await supabase.auth.getUser(token);
+  if (uErr || !u?.user?.id) throw new Error("forbidden");
+  const userId = u.user.id;
+
+  const { data: roles, error: rErr } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .in("role", ["admin", "editor"])
+    .limit(1);
+  if (rErr || !roles || roles.length === 0) throw new Error("forbidden");
+  return userId;
+}
+
 function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
   const authHeader = (req.headers.get("Authorization") || "").trim();
   const apiKeyHeader = (req.headers.get("apikey") || "").trim();
@@ -63,6 +82,60 @@ function durationMinutes(startIso: string, endIso: string): number {
   return Math.max(0, Math.round((b - a) / 60000));
 }
 
+function envInt(name: string, fallback: number): number {
+  const raw = Deno.env.get(name);
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.floor(n) : fallback;
+}
+
+function titleizeWords(input: string): string {
+  return input
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function normalizePanelDisplayName(panelName: string): string {
+  const raw = String(panelName || "").trim();
+  if (!raw) return raw;
+
+  if (/^ForYou[_A-Z]/.test(raw)) return "For You";
+
+  if (/^Experiences[_A-Z]/.test(raw)) {
+    const rest = raw
+      .replace(/^Experiences_?/, "")
+      .replace(/_Flat$/i, "")
+      .replace(/_Rows?$/i, "");
+    return titleizeWords(rest.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2"));
+  }
+
+  if (/^Nested[_A-Z]/.test(raw)) {
+    const rest = raw.replace(/^Nested_?/, "");
+    return titleizeWords(rest.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2"));
+  }
+
+  if (/^Browse[_A-Z]/.test(raw)) {
+    const rest = raw.replace(/^Browse_?/, "");
+    return titleizeWords(rest.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2"));
+  }
+
+  if (/^GameCollections[_A-Z]/.test(raw)) {
+    const rest = raw.replace(/^GameCollections_?/, "");
+    const label = titleizeWords(
+      rest
+        .replace(/_Group\d+$/i, "")
+        .replace(/^Split_?/i, "")
+        .replace(/_/g, " ")
+        .replace(/([a-z])([A-Z])/g, "$1 $2"),
+    );
+    return `Game Collections ${label}`.trim();
+  }
+
+  return titleizeWords(raw.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\bDefault\b/gi, "").trim());
+}
+
 async function fetchAll<T>(
   q: any,
   pageSize = 1000,
@@ -83,13 +156,24 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Auth guard: require service_role key
+    // Auth guard: allow service_role OR admin/editor user
+    const sbUrl = mustEnv("SUPABASE_URL");
+    const authHeader = req.headers.get("Authorization") || "";
     const serviceKey = mustEnv("SUPABASE_SERVICE_ROLE_KEY");
-    if (!isServiceRoleRequest(req, serviceKey)) {
-      return json({ error: "Forbidden: service_role required" }, 403);
+    const serviceRoleMode = isServiceRoleRequest(req, serviceKey);
+    if (!serviceRoleMode) {
+      try {
+        const anonKey = mustEnv("SUPABASE_ANON_KEY");
+        const userClient = createClient(sbUrl, anonKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+        await requireAdminOrEditor(req, userClient);
+      } catch {
+        return json({ error: "Forbidden: admin/editor or service_role required" }, 403);
+      }
     }
 
-    const supabase = createClient(mustEnv("SUPABASE_URL"), serviceKey);
+    const supabase = createClient(sbUrl, serviceKey);
 
     let body: any = {};
     try {
@@ -113,10 +197,16 @@ serve(async (req) => {
     const rangeStart = toUtcStart(dateFrom);
     const rangeEnd = toUtcEndExclusive(dateTo);
 
+    const includeBrowse = body.includeBrowse != null ? Boolean(body.includeBrowse) : false;
+    const allowedSurfaces = includeBrowse
+      ? ["CreativeDiscoverySurface_Frontend", "CreativeDiscoverySurface_Browse"]
+      : ["CreativeDiscoverySurface_Frontend"];
+    const allowedSurfaceSet = new Set(allowedSurfaces);
+
     const { data: targets, error: tErr } = await supabase
       .from("discovery_exposure_targets")
       .select("id,region,surface_name,platform,locale,interval_minutes,last_ok_tick_at")
-      .in("surface_name", ["CreativeDiscoverySurface_Frontend", "CreativeDiscoverySurface_Browse"]);
+      .in("surface_name", allowedSurfaces);
     if (tErr) throw new Error(tErr.message);
 
     // Default: include all active targets (so adding BR/ASIA automatically shows up in reports)
@@ -127,55 +217,161 @@ serve(async (req) => {
       .filter((t: any) => t.last_ok_tick_at != null) as any[];
 
     const targetIds = targetRows.map((t) => String(t.id));
+    const targetIdSet = new Set(targetIds);
+    const includeCollections = body.includeCollections != null ? Boolean(body.includeCollections) : true;
+    const embedTimelineLimitRaw = body.embedTimelineLimit != null
+      ? Number(body.embedTimelineLimit)
+      : envInt("DISCOVERY_EXPOSURE_EMBED_TIMELINE_LIMIT", 600);
+    const embedTimelineLimit = Number.isFinite(embedTimelineLimitRaw)
+      ? Math.max(0, Math.floor(embedTimelineLimitRaw))
+      : 600;
+    const needsRankSegments = includeCollections || embedTimelineLimit > 0;
 
-    // Panels metadata from rank segments overlapping the report range.
+    // Preflight using DB-side aggregation.
+    const { data: topByPanelData, error: topByPanelErr } = await supabase.rpc("discovery_exposure_top_by_panel", {
+      p_date_from: dateFrom,
+      p_date_to: dateTo,
+      p_limit_per_panel: 3,
+    });
+    if (topByPanelErr) throw new Error(topByPanelErr.message);
+    const topByPanelRows: any[] = (Array.isArray(topByPanelData) ? topByPanelData : [])
+      .filter((r: any) => targetIdSet.has(String(r.target_id)))
+      .filter((r: any) => allowedSurfaceSet.has(String(r.surface_name)));
+
+    const { data: panelDailyData, error: panelDailyErr } = await supabase.rpc("discovery_exposure_panel_daily_summaries", {
+      p_date_from: dateFrom,
+      p_date_to: dateTo,
+    });
+    if (panelDailyErr) throw new Error(panelDailyErr.message);
+    const panelDailyRows: any[] = (Array.isArray(panelDailyData) ? panelDailyData : [])
+      .filter((r: any) => targetIdSet.has(String(r.target_id)))
+      .filter((r: any) => allowedSurfaceSet.has(String(r.surface_name)));
+
+    const panelNames = Array.from(new Set<string>([
+      ...panelDailyRows.map((r: any) => String(r.panel_name)),
+      ...topByPanelRows.map((r: any) => String(r.panel_name)),
+    ]));
+
+    const tierLabelByName = new Map<string, string>();
+    if (panelNames.length > 0) {
+      const { data: tierRows, error: tierErr } = await supabase
+        .from("discovery_panel_tiers")
+        .select("panel_name,label")
+        .in("panel_name", panelNames);
+      if (tierErr) throw new Error(tierErr.message);
+      for (const row of tierRows || []) {
+        const key = String((row as any).panel_name || "");
+        const label = String((row as any).label || "").trim();
+        if (key && label) tierLabelByName.set(key, label);
+      }
+    }
+
+    const panelDisplay = (panelName: string, panelDisplayName?: string | null): string => {
+      const byTier = tierLabelByName.get(panelName);
+      if (byTier) return byTier;
+      const fromData = String(panelDisplayName || "").trim();
+      if (fromData) return fromData;
+      return normalizePanelDisplayName(panelName);
+    };
+
+    const profiles = targetRows.map((t) => ({
+      targetId: String(t.id),
+      region: t.region,
+      surfaceName: t.surface_name,
+      platform: t.platform,
+      locale: t.locale,
+      intervalMinutes: t.interval_minutes,
+    }));
+
+    // Panels metadata (from daily rows first; enriched from rank segments when needed).
     const panelMetaByKey = new Map<string, any>();
-    for (const tid of targetIds) {
-      const q = supabase
-        .from("discovery_exposure_rank_segments")
-        .select("target_id,surface_name,panel_name,panel_display_name,panel_type,feature_tags,start_ts,end_ts,last_seen_ts")
-        .eq("target_id", tid)
-        .lt("start_ts", rangeEnd)
-        .or(`end_ts.is.null,end_ts.gt.${rangeStart}`);
-      const rows = await fetchAll<any>(q, 1000, 20000);
-      for (const r of rows) {
-        const key = `${r.target_id}|||${r.panel_name}`;
-        if (!panelMetaByKey.has(key)) {
-          panelMetaByKey.set(key, {
-            target_id: r.target_id,
-            surface_name: r.surface_name,
-            panelName: r.panel_name,
-            panelDisplayName: r.panel_display_name,
-            panelType: r.panel_type,
-            featureTags: r.feature_tags,
-          });
-        }
+    for (const r of panelDailyRows) {
+      const key = `${r.target_id}|||${r.panel_name}`;
+      if (!panelMetaByKey.has(key)) {
+        panelMetaByKey.set(key, {
+          target_id: r.target_id,
+          surface_name: r.surface_name,
+          panelName: r.panel_name,
+          panelDisplayName: panelDisplay(String(r.panel_name)),
+          panelType: null,
+          featureTags: null,
+        });
+      }
+    }
+    for (const r of topByPanelRows) {
+      const key = `${r.target_id}|||${r.panel_name}`;
+      if (!panelMetaByKey.has(key)) {
+        panelMetaByKey.set(key, {
+          target_id: r.target_id,
+          surface_name: r.surface_name,
+          panelName: r.panel_name,
+          panelDisplayName: panelDisplay(String(r.panel_name)),
+          panelType: null,
+          featureTags: null,
+        });
       }
     }
 
     // Rank timeline segments (#1..#10) overlapping the report range.
     const rankSegs: any[] = [];
-    for (const tid of targetIds) {
-      const q = supabase
-        .from("discovery_exposure_rank_segments")
-        .select("target_id,surface_name,panel_name,rank,link_code,link_code_type,start_ts,end_ts,last_seen_ts,ccu_max,ccu_start,ccu_end")
-        .eq("target_id", tid)
-        .lte("rank", 10)
-        .lt("start_ts", rangeEnd)
-        .or(`end_ts.is.null,end_ts.gt.${rangeStart}`)
-        .order("panel_name", { ascending: true })
-        .order("rank", { ascending: true })
-        .order("start_ts", { ascending: true });
-      const rows = await fetchAll<any>(q, 1000, 100000);
-      rankSegs.push(...rows);
+    if (needsRankSegments) {
+      for (const tid of targetIds) {
+        const q = supabase
+          .from("discovery_exposure_rank_segments")
+          .select("target_id,surface_name,panel_name,panel_display_name,panel_type,feature_tags,rank,link_code,link_code_type,start_ts,end_ts,last_seen_ts,ccu_max,ccu_start,ccu_end")
+          .eq("target_id", tid)
+          .lte("rank", 10)
+          .lt("start_ts", rangeEnd)
+          .or(`end_ts.is.null,end_ts.gt.${rangeStart}`);
+        const rows = await fetchAll<any>(q, 1000, 100000);
+        rankSegs.push(...rows);
+        for (const r of rows) {
+          const key = `${r.target_id}|||${r.panel_name}`;
+          if (!panelMetaByKey.has(key)) {
+            panelMetaByKey.set(key, {
+              target_id: r.target_id,
+              surface_name: r.surface_name,
+              panelName: r.panel_name,
+              panelDisplayName: panelDisplay(String(r.panel_name), r.panel_display_name),
+              panelType: r.panel_type ?? null,
+              featureTags: r.feature_tags ?? null,
+            });
+          }
+        }
+      }
     }
 
-    const allCodes = Array.from(
-      new Set(rankSegs.map((s) => String(s.link_code))),
-    );
-    const collectionCodes = Array.from(
-      new Set(rankSegs.filter((s) => String(s.link_code_type) === "collection").map((s) => String(s.link_code))),
-    );
+    // Panels can also exist only in rank segments; resolve missing tier labels after loading them.
+    const allPanelNames = Array.from(new Set<string>([
+      ...panelNames,
+      ...rankSegs.map((r: any) => String(r.panel_name)),
+    ]));
+    const missingTierPanelNames = allPanelNames.filter((n) => n && !tierLabelByName.has(n));
+    if (missingTierPanelNames.length > 0) {
+      const { data: tierRows, error: tierErr } = await supabase
+        .from("discovery_panel_tiers")
+        .select("panel_name,label")
+        .in("panel_name", missingTierPanelNames);
+      if (tierErr) throw new Error(tierErr.message);
+      for (const row of tierRows || []) {
+        const key = String((row as any).panel_name || "");
+        const label = String((row as any).label || "").trim();
+        if (key && label) tierLabelByName.set(key, label);
+      }
+      for (const meta of panelMetaByKey.values()) {
+        meta.panelDisplayName = panelDisplay(String(meta.panelName), String(meta.panelDisplayName || ""));
+      }
+    }
+
+    const allCodes = Array.from(new Set([
+      ...topByPanelRows.map((r: any) => String(r.link_code)),
+      ...rankSegs.map((s) => String(s.link_code)),
+    ]));
+    const collectionCodes = includeCollections
+      ? Array.from(new Set(rankSegs
+          .filter((s) => String(s.link_code_type) === "collection")
+          .map((s) => String(s.link_code))))
+      : [];
 
     // Canonical card metadata (islands + collections)
     const linkMeta = new Map<string, { title: string | null; creator_code: string | null; image_url: string | null }>();
@@ -197,7 +393,10 @@ serve(async (req) => {
 
     // Fallback for islands (legacy cache might still have creator_code/category)
     const islandCodes = Array.from(
-      new Set(rankSegs.filter((s) => String(s.link_code_type) === "island").map((s) => String(s.link_code))),
+      new Set([
+        ...rankSegs.filter((s) => String(s.link_code_type) === "island").map((s) => String(s.link_code)),
+        ...topByPanelRows.filter((r: any) => String(r.link_code_type) === "island").map((r: any) => String(r.link_code)),
+      ]),
     );
     const islandFallback = new Map<string, { title: string | null; creator_code: string | null }>();
     for (let i = 0; i < islandCodes.length; i += 1000) {
@@ -212,30 +411,7 @@ serve(async (req) => {
       }
     }
 
-    // Top 3 per panel for the range (DB-side aggregation).
-    const { data: topByPanelRows, error: topErr } = await supabase.rpc("discovery_exposure_top_by_panel", {
-      p_date_from: dateFrom,
-      p_date_to: dateTo,
-      p_limit_per_panel: 3,
-    });
-    if (topErr) throw new Error(topErr.message);
-
-    // Daily panel summaries (DB-side).
-    const { data: panelDailyRows, error: dailyErr } = await supabase.rpc("discovery_exposure_panel_daily_summaries", {
-      p_date_from: dateFrom,
-      p_date_to: dateTo,
-    });
-    if (dailyErr) throw new Error(dailyErr.message);
-
     // Build JSON payload
-    const profiles = targetRows.map((t) => ({
-      targetId: String(t.id),
-      region: t.region,
-      surfaceName: t.surface_name,
-      platform: t.platform,
-      locale: t.locale,
-      intervalMinutes: t.interval_minutes,
-    }));
 
     const panels = Array.from(panelMetaByKey.values());
 
@@ -244,6 +420,7 @@ serve(async (req) => {
       targetId: r.target_id,
       surfaceName: r.surface_name,
       panelName: r.panel_name,
+      panelDisplayName: panelDisplay(String(r.panel_name)),
       maps: Number(r.maps || 0),
       creators: Number(r.creators || 0),
       collections: Number(r.collections || 0),
@@ -257,6 +434,7 @@ serve(async (req) => {
         targetId: r.target_id,
         surfaceName: r.surface_name,
         panelName: r.panel_name,
+        panelDisplayName: panelDisplay(String(r.panel_name)),
         linkCode: code,
         linkCodeType: r.link_code_type,
         minutesExposed: Number(r.minutes_exposed || 0),
@@ -281,7 +459,7 @@ serve(async (req) => {
     }
 
     const edgesByParent = new Map<string, any[]>();
-    if (collectionCodes.length) {
+    if (includeCollections && collectionCodes.length) {
       const { data: edges } = await supabase
         .from("discover_link_edges")
         .select("parent_link_code,child_link_code,edge_type,sort_order,last_seen_at")
@@ -297,7 +475,7 @@ serve(async (req) => {
     const childCodes = Array.from(
       new Set(Array.from(edgesByParent.values()).flat().map((e: any) => String(e.child_link_code))),
     );
-    if (childCodes.length) {
+    if (includeCollections && childCodes.length) {
       for (let i = 0; i < childCodes.length; i += 1000) {
         const chunk = childCodes.slice(i, i + 1000);
         const { data, error } = await supabase
@@ -374,7 +552,7 @@ serve(async (req) => {
       });
     }
 
-    const panelRankTimeline: any[] = rankSegs.map((s: any) => {
+    const panelRankTimelineAll: any[] = embedTimelineLimit > 0 ? rankSegs.map((s: any) => {
       const start = String(s.start_ts);
       const end = s.end_ts ? String(s.end_ts) : String(s.last_seen_ts || s.start_ts);
       const clampedStart = start < rangeStart ? rangeStart : start;
@@ -386,6 +564,7 @@ serve(async (req) => {
         targetId: s.target_id,
         surfaceName: s.surface_name,
         panelName: s.panel_name,
+        panelDisplayName: panelDisplay(String(s.panel_name), s.panel_display_name),
         rank: Number(s.rank),
         start: clampedStart,
         end: clampedEnd,
@@ -397,7 +576,13 @@ serve(async (req) => {
         creatorCode: m?.creator_code ?? fb?.creator_code ?? null,
         imageUrl: m?.image_url ?? null,
       };
-    });
+    }) : [];
+
+    // Keep embedded timeline compact for report payload size/perf.
+    const panelRankTimeline = panelRankTimelineAll
+      .slice()
+      .sort((a: any, b: any) => Number(b.durationMinutes || 0) - Number(a.durationMinutes || 0))
+      .slice(0, embedTimelineLimit);
 
     const discoveryExposure = {
       meta: {
@@ -405,6 +590,13 @@ serve(async (req) => {
         dateTo,
         rangeStart,
         rangeEnd,
+        includeCollections,
+        includeBrowse,
+        surfaces: allowedSurfaces,
+        embedTimelineLimit,
+        embeddedTimelineTotal: panelRankTimelineAll.length,
+        embeddedTimelineReturned: panelRankTimeline.length,
+        embeddedTimelineTruncated: panelRankTimeline.length < panelRankTimelineAll.length,
       },
       profiles,
       panels,

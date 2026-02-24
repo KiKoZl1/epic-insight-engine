@@ -1,236 +1,61 @@
 # Contributing Guide
 
-Thank you for your interest in contributing to Epic Insight Engine.
+This repository follows a pragmatic, production-minded workflow.
 
-## Getting Started
+## Branch policy
 
-### Development Setup
+1. Keep `main` as release branch.
+2. Never do feature work directly on `main`.
+3. Use short-lived branches:
+   - `feat/*`
+   - `fix/*`
+   - `ops/*`
+   - `docs/*`
 
-1. Fork the repository
-2. Clone your fork:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/epic-insight-engine.git
-   cd epic-insight-engine
-   ```
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
-4. Create a feature branch:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+For Ralph autonomous loops, branch isolation is mandatory.
 
-## Branching Policy (Main-Only Teams)
+## Minimal quality gates
 
-If your team currently only uses `main`, do not commit directly to it for feature or automation work.
+Before merge:
 
-Recommended minimum:
-
-1. Keep `main` as protected release branch.
-2. Create short-lived branches per work item (`feat/*`, `fix/*`, `ops/*`).
-3. Merge by PR only after build/test/smoke gates pass.
-4. Tag releases after deploy.
-
-For Ralph/autonomous loops, branch isolation is mandatory to ensure rollback and safe promotion.
-
-## Code Style
-
-### TypeScript
-
-- Use TypeScript for all new code
-- Prefer explicit types over `any`
-- Use interfaces for object shapes
-
-### React
-
-- Use functional components with hooks
-- Follow React best practices
-- Use proper component composition
-
-### CSS/Tailwind
-
-- Use Tailwind CSS utility classes
-- Follow the existing design system
-- Use shadcn/ui components when available
-
-### File Organization
-
-```
-src/
-├── components/     # Reusable components
-│   ├── ui/        # Base UI components
-│   └── feature/   # Feature-specific components
-├── pages/         # Route pages
-├── hooks/          # Custom hooks
-├── lib/           # Utilities
-└── integrations/  # Third-party integrations
+```bash
+npm run lint
+npm run build
+npm run test
 ```
 
-## Commit Messages
+If a change is docs-only, call that out in commit/PR and skip irrelevant gates intentionally.
 
-Use clear, descriptive commit messages:
+## Commit style
 
-```
-feat: add island search functionality
-fix: resolve authentication redirect issue
-docs: update API documentation
-refactor: simplify data processing logic
-```
+Use clear conventional prefixes:
 
-### Types
+- `feat: ...`
+- `fix: ...`
+- `docs: ...`
+- `refactor: ...`
+- `chore: ...`
+- `ops: ...`
 
-| Type | Description |
-|------|-------------|
-| `feat` | New feature |
-| `fix` | Bug fix |
-| `docs` | Documentation |
-| `style` | Formatting |
-| `refactor` | Code restructuring |
-| `test` | Tests |
-| `chore` | Maintenance |
+Keep commits atomic and easy to revert.
 
-## Pull Request Process
+## Supabase change rules
 
-### Before Submitting
+1. Schema changes only via migration files in `supabase/migrations`.
+2. Edge Function changes under `supabase/functions/<name>/index.ts`.
+3. Deploy/test commands must be recorded in PR notes or handoff notes.
+4. Never commit secrets (`.env`, keys, tokens, private JSON credentials).
 
-1. **Run tests**:
-   ```bash
-   npm run test
-   ```
+## Documentation rules
 
-2. **Run linting**:
-   ```bash
-   npm run lint
-   ```
+1. `docs/` holds active source-of-truth guides.
+2. Move obsolete material to `docs/archive/`.
+3. Update `docs/README.md` when adding/removing major docs.
 
-3. **Type check**:
-   ```bash
-   npx tsc --noEmit
-   ```
+## Pull request checklist
 
-4. **Build the project**:
-   ```bash
-   npm run build
-   ```
-
-### PR Requirements
-
-- Clear description of changes
-- Link to any related issues
-- Screenshots for UI changes
-- Updated documentation if needed
-
-### Review Process
-
-1. All submissions require review
-2. Address feedback promptly
-3. Keep changes focused and atomic
-
-## Component Guidelines
-
-### Creating New Components
-
-1. Use existing shadcn/ui components when possible
-2. Follow the project's component structure
-3. Include proper TypeScript types
-4. Add accessibility attributes
-
-### Example Component
-
-```tsx
-import { cn } from "@/lib/utils";
-
-interface Props {
-  className?: string;
-  title: string;
-}
-
-export function MyComponent({ className, title }: Props) {
-  return (
-    <div className={cn("default-styles", className)}>
-      {title}
-    </div>
-  );
-}
-```
-
-## Testing Guidelines
-
-### Unit Tests
-
-- Test utility functions
-- Test custom hooks
-- Test data processing logic
-
-### Component Tests
-
-- Test rendering
-- Test user interactions
-- Test edge cases
-
-### Example Test
-
-```tsx
-import { describe, it, expect } from 'vitest';
-import { myFunction } from './myModule';
-
-describe('myFunction', () => {
-  it('should return correct value', () => {
-    expect(myFunction('input')).toBe('expected');
-  });
-});
-```
-
-## Documentation
-
-### Updating Documentation
-
-- Update README if adding new features
-- Add JSDoc comments to functions
-- Update this guide for process changes
-
-### Documentation Structure
-
-```
-docs/
-├── SETUP.md        # Setup guide
-├── USAGE.md        # User guide
-├── ARCHITECTURE.md # Technical architecture
-├── DATABASE.md     # Database schema
-└── CONTRIBUTING.md # This file
-```
-
-## Reporting Issues
-
-### Bug Reports
-
-Include:
-- Clear title
-- Steps to reproduce
-- Expected vs actual behavior
-- Screenshots if applicable
-- Environment details
-
-### Feature Requests
-
-Include:
-- Clear description
-- Use case
-- Potential solutions
-- Priority level
-
-## Questions?
-
-For questions about contributing:
-- Open an issue for discussion
-- Contact the maintainers
-
-## Recognition
-
-Contributors will be acknowledged in the project documentation.
-
----
-
-*Last updated: 2024*
-
+1. Problem and scope are clear.
+2. Change summary is explicit.
+3. Risks and rollback are defined.
+4. Validation evidence is included (screenshots/logs/queries where relevant).
+5. Follow-up items are listed if anything is intentionally deferred.

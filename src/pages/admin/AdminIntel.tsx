@@ -17,18 +17,42 @@ export default function AdminIntel() {
   const [pollutionCount, setPollutionCount] = useState<number>(0);
   const [refreshing, setRefreshing] = useState(false);
   const [lastResult, setLastResult] = useState<any>(null);
+  const [partnerSignals, setPartnerSignals] = useState<any[]>([]);
+  const [partnerWeekKey, setPartnerWeekKey] = useState<string | null>(null);
+
+  function fmt(n: number | null | undefined): string {
+    if (n == null) return "-";
+    const num = Number(n);
+    if (Number.isNaN(num)) return "-";
+    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + "M";
+    if (num >= 1_000) return (num / 1_000).toFixed(1) + "K";
+    if (Number.isInteger(num)) return num.toLocaleString("en-US");
+    return num.toFixed(2);
+  }
 
   async function loadCounts() {
     setLoading(true);
-    const [p, e, pol] = await Promise.all([
+    const [p, e, pol, latestReport] = await Promise.all([
       (supabase as any).from("discovery_public_premium_now").select("as_of", { count: "exact", head: false }).limit(1),
       (supabase as any).from("discovery_public_emerging_now").select("as_of", { count: "exact", head: false }).limit(1),
       (supabase as any).from("discovery_public_pollution_creators_now").select("as_of", { count: "exact", head: false }).limit(1),
+      (supabase as any)
+        .from("weekly_reports")
+        .select("week_key,rankings_json,published_at")
+        .eq("status", "published")
+        .order("published_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
     setPremiumCount(p.count || 0);
     setEmergingCount(e.count || 0);
     setPollutionCount(pol.count || 0);
     setAsOf(p.data?.[0]?.as_of || e.data?.[0]?.as_of || pol.data?.[0]?.as_of || null);
+    const partnerRows = Array.isArray((latestReport as any)?.data?.rankings_json?.partnerSignals)
+      ? (latestReport as any).data.rankings_json.partnerSignals
+      : [];
+    setPartnerSignals(partnerRows);
+    setPartnerWeekKey((latestReport as any)?.data?.week_key || null);
     setLoading(false);
   }
 
@@ -93,6 +117,39 @@ export default function AdminIntel() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium">
+            Partner Signals {partnerWeekKey ? `- ${partnerWeekKey}` : ""}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Internal codename tracking for potential partner IP onboarding. This panel is aggregated by codename/project only and never exposes island codes or island names.
+          </p>
+          {partnerSignals.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No partner codename signals found in the latest published report.</p>
+          ) : (
+            <div className="space-y-2">
+              {partnerSignals.map((s: any, idx: number) => (
+                <div key={`${s.codename || "sig"}:${idx}`} className="border rounded-md p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{s.projectName || s.codename || "Partner Signal"}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      codename: {s.codename || "n/a"} - islands: {fmt(s.islands)} - players: {fmt(s.players)}
+                    </p>
+                  </div>
+                  <div className="text-xs text-right whitespace-nowrap">
+                    <div className="font-semibold">{fmt(s.plays)} plays</div>
+                    <div className="text-muted-foreground">{Number(s.sharePlaysPct || 0).toFixed(2)}%</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">

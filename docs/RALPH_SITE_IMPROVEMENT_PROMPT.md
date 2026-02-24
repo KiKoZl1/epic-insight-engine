@@ -16,6 +16,7 @@ Constraints:
 - Keep build/test compatibility.
 - No changes to migrations, lock files, env/secrets, or deployment configs.
 - If build fails 2 consecutive runs with the same failure signature, stop applying edits and switch to diagnose/propose mode.
+- If the same feature keeps failing, rotate to the next pending feature in `docs/ralph/feature_backlog.json`.
 - Do not use partial/truncated find/replace snippets; only use line-bounded replacements for full code blocks.
 - If a file is already in broken state, prioritize restoring compilable state before any new feature work.
 

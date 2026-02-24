@@ -8,6 +8,25 @@ const corsHeaders = {
 
 const SUPPORTED_LOCALES = ["pt-BR"] as const;
 
+async function requireAdminOrEditor(req: Request, supabase: any): Promise<string> {
+  const auth = req.headers.get("Authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+  if (!token) throw new Error("forbidden");
+
+  const { data: u, error: uErr } = await supabase.auth.getUser(token);
+  if (uErr || !u?.user?.id) throw new Error("forbidden");
+  const userId = u.user.id;
+
+  const { data: roles, error: rErr } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .in("role", ["admin", "editor"])
+    .limit(1);
+  if (rErr || !roles || roles.length === 0) throw new Error("forbidden");
+  return userId;
+}
+
 function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
   const authHeader = (req.headers.get("Authorization") || "").trim();
   const apiKeyHeader = (req.headers.get("apikey") || "").trim();
@@ -40,11 +59,22 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const sbUrl = Deno.env.get("SUPABASE_URL")!;
+    const authHeader = req.headers.get("Authorization") || "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    if (!isServiceRoleRequest(req, serviceKey)) {
-      return new Response(JSON.stringify({ error: "Forbidden: service_role required" }), {
-        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const serviceRoleMode = isServiceRoleRequest(req, serviceKey);
+    if (!serviceRoleMode) {
+      try {
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+        const userClient = createClient(sbUrl, anonKey, {
+          global: { headers: { Authorization: authHeader } },
+        });
+        await requireAdminOrEditor(req, userClient);
+      } catch {
+        return new Response(JSON.stringify({ error: "Forbidden: admin/editor or service_role required" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const { reportId } = await req.json();
@@ -55,7 +85,7 @@ serve(async (req) => {
       });
     }
 
-    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
+    const supabase = createClient(sbUrl, serviceKey);
 
     const { data: report, error } = await supabase
       .from("discover_reports")
@@ -78,6 +108,8 @@ serve(async (req) => {
     const evidence = weeklyRankingsJson?.evidence || null;
     const exposure = weeklyRankingsJson?.discoveryExposure || null;
     const exposureSummary = buildExposureSummary(exposure, weeklyRow);
+    const newMapsPublished = Number((kpis as any)?.newMapsThisWeekPublished ?? (kpis as any)?.newMapsThisWeek ?? 0);
+    const newMapsFirstSeen = Number((kpis as any)?.newMapsThisWeek ?? 0);
 
     const evidenceSummary = evidence ? JSON.stringify(evidence, null, 0) : null;
     const r = rankings as any || {};
@@ -120,10 +152,12 @@ serve(async (req) => {
       trendingTopics: r.trendingTopics?.slice?.(0, 20) || [],
       topTags: r.topTags?.slice?.(0, 20) || [],
       topCategoriesByPlays: r.topCategoriesByPlays?.slice?.(0, 10) || [],
+      partnerSignals: r.partnerSignals?.slice?.(0, 12) || [],
       // New islands
       topNewIslandsByPlays: r.topNewIslandsByPlays?.slice?.(0, 10) || [],
       topNewIslandsByPlayers: r.topNewIslandsByPlayers?.slice?.(0, 10) || [],
       mostUpdatedIslandsThisWeek: r.mostUpdatedIslandsThisWeek?.slice?.(0, 20) || [],
+      mostUpdatedIslandsWeekly: r.mostUpdatedIslandsWeekly?.slice?.(0, 20) || [],
       // Low perf
       failedIslandsList: r.failedIslandsList?.slice?.(0, 10) || [],
       lowPerfHistogram: r.lowPerfHistogram || [],
@@ -149,6 +183,7 @@ serve(async (req) => {
       creatorRisers: r.creatorRisers?.slice?.(0, 10) || [],
       creatorDecliners: r.creatorDecliners?.slice?.(0, 10) || [],
       creatorRankClimbers: r.creatorRankClimbers?.slice?.(0, 10) || [],
+      epicSpotlight: r.epicSpotlight || null,
     }, null, 0);
     const baselineAvailable = Boolean((kpis as any)?.baselineAvailable) || kpis.wowTotalPlays != null;
 
@@ -201,8 +236,9 @@ serve(async (req) => {
 
 ## Data Available
 - **${kpis.totalIslands}** total islands analyzed, **${kpis.activeIslands}** active (5+ players)
-- **${kpis.newMapsThisWeek || 0}** new maps this week, **${kpis.newCreatorsThisWeek || 0}** new creators
-- New maps by Epic publish date (Links metadata): ${((kpis as any).newMapsThisWeekPublished ?? "N/A")}
+- **${newMapsPublished}** new maps published this week (Epic publish date, authoritative for report wording)
+- **${newMapsFirstSeen}** maps first seen in our tracking this week (operational metric; never call this "published")
+- **${kpis.newCreatorsThisWeek || 0}** new creators first seen this week
 - Baseline available for WoW/lifecycle: ${baselineAvailable ? "yes" : "no"}
 - Metadata coverage (title/image): ${JSON.stringify((kpis as any).metadataCoverage || null)}
 - **${kpis.failedIslands || 0}** islands with <500 unique players (low performance)
@@ -229,6 +265,10 @@ Write insightful narratives for each of the 27 sections below. Each narrative MU
 - Actionable insights for creators (e.g., "Creators should consider X genre given Y trend")
 - Notable standouts or anomalies worth highlighting
 - When WoW data is available, mention trends and changes vs last week with specific % deltas and absolute previous values
+- For "new maps this week" in publication narratives, prioritize the Epic publish-date metric (newMapsThisWeekPublished) over first-seen counts.
+- HARD RULE: whenever you write "published this week" (or equivalent), you MUST use exactly ${newMapsPublished}.
+- HARD RULE: never use ${newMapsFirstSeen} for published wording; if mentioned, label it only as "first seen in tracker".
+- Outside the Global Peak CCU section and Epic Spotlight data, treat rankings as UGC-only (Epic maps are excluded by design). Do not use Epic examples in other sections.
 - If baseline is not available (Baseline available = no), for sections that depend on WoW data (sections 16, 17, 18, 26, 27), write about what WILL be tracked once baseline exists. Discuss what the current snapshot reveals about the ecosystem's starting point. DO NOT write "none" or say there's no data — instead analyze the current week's absolute performance as the foundation for future comparisons.
 - Always explain what values mean (e.g., "5.37 plays per unique player", "71.26 favorites per 100 players")
 - For stickiness scores, explain the formula: plays × avgMinutes × retention
@@ -241,6 +281,7 @@ IMPORTANT terminology rules (MUST follow):
 - CreativeDiscoverySurface_Frontend MUST be referred to as "Discovery" (never use the full technical name)
 - The terms "Discover", "Browse", and "Discovery" must NEVER be translated — always keep them in English
 - Keep island names, creator names, and technical terms in their original form
+- In section 19, always use the provided panel display labels from exposure summary (never output raw technical panel codes)
 
 Sections:
 1. Core Activity Overview - ecosystem health, total islands/creators, active vs inactive maps, avg maps per creator, new maps/creators, WoW changes
@@ -257,19 +298,20 @@ Sections:
 12. Efficiency & Conversion - favorites/play ratio (topFavsPerPlay), recommendations/play ratio (topRecsPerPlay), plays per player (topPlaysPerPlayer). These metrics are ALWAYS available. Analyze conversion quality.
 13. Stickiness (D1 & D7) - top 10 stickiness scores (plays × avgMinutes × retention) for global and UGC. Explain what stickiness means and why it matters
 14. Retention-Adjusted Engagement - top 10 by avgMinutes × retention (D1 and D7, ≥1000 plays & ≥500 uniques filter). Deep engagement quality
-15. Category & Tags - genre distribution, top tags by island count, top categories by plays. Market composition analysis
+15. Category & Tags - genre distribution, top tags by island count, top categories by plays. Include Partner Signals (internal codename candidates) using ONLY aggregated codename/project-level stats; never mention island names or island codes in this subsection.
 16. Weekly Growth / Breakouts - If baseline available: biggest risers by play delta, breakout detection. If NO baseline: analyze the current week's top performers as the "starting lineup", discuss which islands show signs of breakout potential based on their absolute metrics (high plays + high retention = likely breakout candidate)
 17. Risers & Decliners - If baseline available: specific WoW movers. If NO baseline: identify potential risers/decliners by analyzing metric imbalances (e.g., high plays but low retention = at risk of declining; low plays but high retention = poised to rise with more visibility)
 18. Island Lifecycle - revived islands, dead islands, breakout stories. If NO baseline: describe the ecosystem's current composition as the lifecycle starting point
 19. Discovery Exposure - which panels drove exposure, time-in-panel patterns, churn/stability, and actionable positioning insights (based on panel/rank timeline)
 20. Multi-Panel Presence - islands appearing in the most DISTINCT panels. Analyze versatility: which islands does Epic's algorithm distribute across multiple categories? Reference multiPanelPresence data with panel_names arrays. Highlight what makes these islands algorithmically versatile.
 21. Panel Loyalty (Residents) - islands with the longest cumulative exposure in a SINGLE panel. These are "category residents" that dominate a specific panel. Reference panelLoyalty data. Analyze what makes an island "own" a panel position.
-22. Most Updated Islands - islands with the highest version numbers (most iterations by creators). Reference mostUpdatedIslandsThisWeek and versionEnrichment data. Analyze the correlation between update frequency and performance. Include version distribution stats.
+22. Most Updated Islands - analyze BOTH: (a) highest total version numbers and (b) highest weekly updates count. Reference mostUpdatedIslandsThisWeek, mostUpdatedIslandsWeekly and versionEnrichment data. Explain how weekly update velocity differs from lifetime version depth, and include version distribution stats.
 23. Rookie Creators - new creators (first_seen this week) with standout performance. Reference rookieCreators data. Analyze how rookies compare to established creators. Highlight total new creators and their best islands.
 24. Player Capacity Analysis - performance breakdown by max_players tiers (Solo, Duo, Squad, Party, Large, Massive). Reference capacityAnalysis data. Which player count drives the best retention/engagement? Actionable insights for creators choosing party sizes.
 25. UEFN vs Fortnite Creative - tool split comparison. Reference toolSplit data. Compare avg plays, retention, CCU, minutes between UEFN and FNC islands. Which tool produces better-performing islands? What does this mean for creators choosing their development tool?
 26. Category & Genre Movement - WoW category comparison. Reference categoryRisers and categoryDecliners data. Which categories/genres are growing or shrinking? Include plays delta, % change, island count changes. Identify emerging genres and declining ones. What does this mean for creators choosing what to build?
-27. Creator Movement & Ranking Changes - WoW creator comparison. Reference creatorRisers, creatorDecliners, and creatorRankClimbers data. Which creators gained/lost the most plays? Who climbed the most ranking positions? Include rank changes, play deltas, and % changes. Identify breakout creators and consistent performers.`;
+27. Creator Movement & Ranking Changes - WoW creator comparison. Reference creatorRisers, creatorDecliners, and creatorRankClimbers data. Which creators gained/lost the most plays? Who climbed the most ranking positions? Include rank changes, play deltas, and % changes. Identify breakout creators and consistent performers.
+28. Epic Spotlight - analyze Epic-authored maps separately (top peak CCU, top plays, top unique players, and WoW movers if available). Compare Epic momentum vs UGC without mixing them into UGC conclusions.`;
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
@@ -278,7 +320,7 @@ Sections:
 
     // ── Step 1: Generate English narratives ──
     const sectionProps: Record<string, any> = {};
-    for (let i = 1; i <= 27; i++) {
+    for (let i = 1; i <= 28; i++) {
       sectionProps[`section${i}`] = {
         type: "object",
         properties: {
@@ -466,23 +508,42 @@ Keep island codes (e.g. 1234-1234-1234) unchanged.`,
 // ── Exposure summary builder ──
 function buildExposureSummary(exposure: any, weeklyRow: any): any {
   if (!exposure) return null;
-  const topByPanel = Array.isArray(exposure.topByPanel) ? exposure.topByPanel : [];
-  const panelSummaries = Array.isArray(exposure.panelSummaries) ? exposure.panelSummaries : [];
-  const profiles = Array.isArray(exposure.profiles) ? exposure.profiles : [];
+  const DISCOVERY_SURFACE = "CreativeDiscoverySurface_Frontend";
+  const topByPanelAll = Array.isArray(exposure.topByPanel) ? exposure.topByPanel : [];
+  const panelSummariesAll = Array.isArray(exposure.panelSummaries) ? exposure.panelSummaries : [];
+  const profilesAll = Array.isArray(exposure.profiles) ? exposure.profiles : [];
+  const profiles = profilesAll.filter((p: any) => String(p?.surfaceName) === DISCOVERY_SURFACE);
+  const allowedTargetIds = new Set(profiles.map((p: any) => String(p.targetId)));
+  const topByPanel = topByPanelAll.filter((r: any) =>
+    String(r?.surfaceName) === DISCOVERY_SURFACE && allowedTargetIds.has(String(r?.targetId))
+  );
+  const panelSummaries = panelSummariesAll.filter((r: any) =>
+    String(r?.surfaceName) === DISCOVERY_SURFACE && allowedTargetIds.has(String(r?.targetId))
+  );
+  const profileById = new Map<string, any>(
+    profiles.map((p: any) => [String(p.targetId), p])
+  );
 
   const topPanels = (() => {
-    const m = new Map<string, { key: string; minutes: number }>();
+    const m = new Map<string, { key: string; minutes: number; panelDisplayName: string }>();
     for (const r of topByPanel) {
       const key = `${r.targetId}|||${r.panelName}`;
-      const cur = m.get(key) || { key, minutes: 0 };
+      const cur = m.get(key) || { key, minutes: 0, panelDisplayName: String(r.panelDisplayName || r.panelName || "") };
       cur.minutes += Number(r.minutesExposed || 0);
+      if (!cur.panelDisplayName) {
+        cur.panelDisplayName = String(r.panelDisplayName || r.panelName || "");
+      }
       m.set(key, cur);
     }
     const arr = Array.from(m.values()).sort((a, b) => b.minutes - a.minutes).slice(0, 10);
     return arr.map((x) => {
       const [targetId, panelName] = x.key.split("|||");
-      const p = profiles.find((pp: any) => pp.targetId === targetId);
-      return { profile: p ? `${p.region} ${p.surfaceName}` : targetId, panelName, minutes: Math.round(x.minutes) };
+      const p = profileById.get(targetId);
+      return {
+        profile: p ? `${p.region} Discovery` : targetId,
+        panel: x.panelDisplayName || panelName,
+        minutes: Math.round(x.minutes),
+      };
     });
   })();
 
@@ -491,18 +552,29 @@ function buildExposureSummary(exposure: any, weeklyRow: any): any {
     .sort((a: any, b: any) => Number(b.minutesExposed || 0) - Number(a.minutesExposed || 0))
     .slice(0, 15)
     .map((r: any) => ({
-      profile: `${r.surfaceName} ${r.targetId}`,
-      panel: r.panelName, code: r.linkCode, title: r.title || null,
+      profile: `${profileById.get(String(r.targetId))?.region || ""} Discovery`.trim(),
+      panel: r.panelDisplayName || r.panelName,
+      code: r.linkCode,
+      title: r.title || null,
       creator: r.creatorCode || null, minutes: Number(r.minutesExposed || 0),
       bestRank: r.bestRank ?? null, ccuMax: r.ccuMaxSeen ?? null, type: r.linkCodeType,
     }));
 
-  const daily = panelSummaries.slice(0, 50);
+  const daily = panelSummaries
+    .slice(0, 50)
+    .map((r: any) => ({
+      date: r.date,
+      profile: `${profileById.get(String(r.targetId))?.region || ""} Discovery`.trim(),
+      panel: r.panelDisplayName || r.panelName,
+      maps: Number(r.maps || 0),
+      creators: Number(r.creators || 0),
+      collections: Number(r.collections || 0),
+    }));
 
   return {
     dateFrom: exposure?.meta?.dateFrom || (weeklyRow as any)?.date_from || null,
     dateTo: exposure?.meta?.dateTo || (weeklyRow as any)?.date_to || null,
-    profiles: profiles.map((p: any) => ({ region: p.region, surfaceName: p.surfaceName })),
+    profiles: profiles.map((p: any) => ({ region: p.region, surfaceName: "Discovery" })),
     topPanels, topItems, dailySample: daily,
   };
 }

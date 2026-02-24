@@ -48,6 +48,19 @@ const DEFAULT_GUARD_RAILS: GuardRails = {
   budgetMs: 45000,
 };
 
+function tunedRailsForSurface(surfaceName: string, base: GuardRails): GuardRails {
+  // Browse surfaces are heavier and frequently hit DB statement timeout if we ingest too much in one tick.
+  if (surfaceName.includes("Browse")) {
+    return {
+      ...base,
+      maxPagesPerPanel: Math.min(base.maxPagesPerPanel, 12),
+      maxTotalEntries: Math.min(base.maxTotalEntries, 2500),
+      budgetMs: Math.min(base.budgetMs, 35000),
+    };
+  }
+  return base;
+}
+
 function json(res: unknown, status = 200) {
   return new Response(JSON.stringify(res), {
     status,
@@ -437,9 +450,14 @@ async function runTick(
     const panels = Array.isArray(surfaceJson?.panels) ? surfaceJson.panels : [];
 
     const rowsForDb: any[] = [];
+    let stopByBudget = false;
+    let stopByTotalGuard = false;
 
     for (const p of panels) {
-      if (Date.now() - startedAt > rails.budgetMs) throw new Error("budget_exceeded");
+      if (Date.now() - startedAt > rails.budgetMs) {
+        stopByBudget = true;
+        break;
+      }
 
       const panelName = String(p?.panelName || "");
       if (!panelName) continue;
@@ -454,6 +472,10 @@ async function runTick(
       const firstHasMore = Boolean(firstPage?.hasMore);
 
       for (let i = 0; i < firstResults.length; i++) {
+        if (rowsForDb.length >= rails.maxTotalEntries) {
+          stopByTotalGuard = true;
+          break;
+        }
         const r = firstResults[i];
         const linkCode = String(r?.linkCode || "");
         if (!linkCode) continue;
@@ -472,12 +494,15 @@ async function runTick(
           lock_status: r?.lockStatus ?? null,
           lock_status_reason: r?.lockStatusReason ?? null,
         });
-        if (rowsForDb.length > rails.maxTotalEntries) throw new Error("guard_max_total_entries");
       }
+      if (stopByTotalGuard) break;
 
       if (firstHasMore) {
         for (let pageIndex = 1; pageIndex <= rails.maxPagesPerPanel; pageIndex++) {
-          if (Date.now() - startedAt > rails.budgetMs) throw new Error("budget_exceeded");
+          if (Date.now() - startedAt > rails.budgetMs) {
+            stopByBudget = true;
+            break;
+          }
 
           const pageBody = {
             testVariantName,
@@ -490,6 +515,10 @@ async function runTick(
           const pageJson = pageResp.json;
           const results = Array.isArray(pageJson?.results) ? pageJson.results : [];
           for (let i = 0; i < results.length; i++) {
+            if (rowsForDb.length >= rails.maxTotalEntries) {
+              stopByTotalGuard = true;
+              break;
+            }
             const r = results[i];
             const linkCode = String(r?.linkCode || "");
             if (!linkCode) continue;
@@ -508,14 +537,15 @@ async function runTick(
               lock_status: r?.lockStatus ?? null,
               lock_status_reason: r?.lockStatusReason ?? null,
             });
-            if (rowsForDb.length > rails.maxTotalEntries) throw new Error("guard_max_total_entries");
           }
+          if (stopByTotalGuard) break;
           const hasMore = Boolean(pageJson?.hasMore);
           if (!hasMore) break;
-          if (pageIndex === rails.maxPagesPerPanel) throw new Error("guard_max_pages_per_panel");
+          if (pageIndex === rails.maxPagesPerPanel) break;
           await sleep(0);
         }
       }
+      if (stopByBudget || stopByTotalGuard) break;
     }
 
     const durationMs = Date.now() - startedAt;
@@ -860,7 +890,8 @@ serve(async (req) => {
         lock_id: String(t.lock_id || lockId || ""),
       };
 
-      const result = await runTick(supabase, claim, rails);
+      const tunedRails = tunedRailsForSurface(claim.surface_name, rails);
+      const result = await runTick(supabase, claim, tunedRails);
       await supabase
         .from("discovery_exposure_targets")
         .update({
@@ -928,7 +959,8 @@ serve(async (req) => {
       const claim = claims[0];
       claimedAny = true;
 
-      const result = await runTick(supabase, claim, rails, auth);
+      const tunedRails = tunedRailsForSurface(claim.surface_name, rails);
+      const result = await runTick(supabase, claim, tunedRails, auth);
 
       // Release the logical lock (best-effort, guard by lock_id).
       await supabase

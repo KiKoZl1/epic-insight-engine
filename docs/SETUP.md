@@ -1,181 +1,102 @@
 # Setup Guide
 
-This guide covers the complete setup process for Epic Insight Engine.
+This setup is for the current local-first workflow (frontend local + Supabase cloud backend owned by the project).
 
 ## Prerequisites
 
-### Software Requirements
+- Node.js 20+ (22 recommended)
+- npm 9+
+- Git
+- Supabase CLI (`npx supabase@latest` or global install)
+- Optional: `psql` if you want direct SQL from terminal
 
-| Software | Version | Notes |
-|----------|---------|-------|
-| Node.js | 18+ | LTS recommended |
-| npm | 9+ | Or bun for faster installs |
-| Git | 2.30+ | For version control |
-| Supabase CLI | Latest | For local development |
+## 1) Install dependencies
 
-### Account Requirements
-
-- Supabase project (free tier works)
-- Fortnite API access (for production data collection)
-
-## Step 1: Clone the Repository
-
-```bash
-git clone <repository-url>
-cd epic-insight-engine
-```
-
-## Step 2: Install Dependencies
-
-Using npm:
 ```bash
 npm install
 ```
 
-Or using bun (faster):
-```bash
-bun install
-```
+## 2) Configure environment
 
-## Step 3: Environment Configuration
+Create `.env` in project root (do not commit it):
 
-### Creating Environment Files
-
-Create the following files in the project root:
-
-#### `.env` (Required)
 ```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-OPENAI_API_KEY=your-openai-key
-OPENAI_MODEL=gpt-4.1-mini
+VITE_SUPABASE_URL="https://<project-ref>.supabase.co"
+VITE_SUPABASE_PUBLISHABLE_KEY="<anon-or-publishable-key>"
+SUPABASE_URL="https://<project-ref>.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+
+# Preferred LLM provider for current Ralph memory stack
+NVIDIA_API_KEY="<nvidia-api-key>"
+
+# Optional fallback provider
+OPENAI_API_KEY="<openai-api-key>"
+OPENAI_MODEL="gpt-4.1-mini"
+OPENAI_TRANSLATION_MODEL="gpt-4.1-mini"
 ```
 
-#### `.env.local` (Optional - for development)
-```env
-VITE_SUPABASE_URL=http://localhost:54321
-VITE_SUPABASE_PUBLISHABLE_KEY=your-local-anon-key
-SUPABASE_URL=http://localhost:54321
-SUPABASE_SERVICE_ROLE_KEY=your-local-service-role-key
-```
+Reference template: `.env.example`.
 
-You can bootstrap these values from `.env.example`.
-
-### Getting Supabase Credentials
-
-1. Go to [Supabase Dashboard](https://supabase.com/dashboard)
-2. Create a new project or select existing
-3. Go to **Project Settings** → **API**
-4. Copy the **Project URL** and **anon public** key
-
-## Step 4: Database Setup
-
-### Option A: Local Development
+## 3) Link Supabase project
 
 ```bash
-# Install Supabase CLI
-npm install -g supabase
-
-# Start local Supabase
-supabase start
+npx supabase@latest login
+npx supabase@latest link --project-ref <project-ref>
 ```
 
-### Option B: Production Database
+If link fails due to `config.toml` encoding, save `supabase/config.toml` as UTF-8 and retry.
 
-Run the migrations in `supabase/migrations/`:
+## 4) Apply schema and deploy functions
 
 ```bash
-supabase db push
+npx supabase@latest db push
+npx supabase@latest functions deploy
 ```
 
-Or manually execute the SQL files in your Supabase dashboard's SQL editor.
+If you prefer selective deploy:
 
-## Step 5: Run the Application
+```bash
+npx supabase@latest functions deploy discover-collector
+```
 
-### Development Mode
+## 5) Run frontend
 
 ```bash
 npm run dev
 ```
 
-The application will be available at `http://localhost:8080`
+Open `http://localhost:8080`.
 
-### Production Build
+## 6) Smoke checks
 
-```bash
-npm run build
-npm run preview
-```
+1. Login at `/auth` (email or Google).
+2. Open `/app` and `/app/island-lookup`.
+3. Open `/admin` as admin/editor user.
+4. Verify command center loads without auth/RPC errors.
 
-## Step 6: Verify Setup
-
-### Check Application Loads
-
-1. Open `http://localhost:8080`
-2. Verify the home page renders
-3. Check browser console for errors
-
-### Check Authentication
-
-1. Navigate to `/auth`
-2. Try signing up with a test account
-3. Verify email confirmation works
-
-### Check Database Connection
-
-1. Sign in to the application
-2. Open browser DevTools
-3. Check network tab for successful Supabase requests
-
-## Development Tools
-
-### Running Tests
-
-```bash
-# Run tests once
-npm run test
-
-# Watch mode
-npm run test:watch
-```
-
-### Linting
+## Useful commands
 
 ```bash
 npm run lint
+npm run build
+npm run test
+npm run ralph:local
+npm run ralph:loop
 ```
 
-### Type Checking
+## Common issues
 
-```bash
-npx tsc --noEmit
-```
+### Missing env values
 
-## Troubleshooting
+- Reload terminal after editing `.env`.
+- Confirm keys are in process env before running scripts.
 
-### Common Issues
+### Edge Function 401/403
 
-#### "VITE_SUPABASE_URL is not set"
-- Ensure `.env` file exists in project root
-- Restart dev server after creating `.env`
+- Check `SUPABASE_SERVICE_ROLE_KEY`.
+- Validate function auth mode (service role only vs admin/editor mode).
 
-#### "CORS errors"
-- Check Supabase dashboard → API → CORS settings
-- Add `http://localhost:8080` to allowed origins
+### Cron jobs failing with config errors
 
-#### "Authentication not working"
-- Verify Supabase Auth settings in dashboard
-- Check email confirmation settings
-
-#### "Database tables not found"
-- Run migrations: `supabase db push`
-- Check if tables exist in Supabase dashboard
-
-### Getting Help
-
-- Check Supabase logs in dashboard
-- Review Edge Function logs
-- Check browser console for errors
-
+- Ensure cron commands use explicit project URL/service token strategy compatible with your project configuration.
+- Use admin cron RPCs in this repo to pause/resume/list runs.

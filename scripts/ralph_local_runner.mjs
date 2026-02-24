@@ -40,8 +40,8 @@ function parseArgs(argv) {
   const args = {
     mode: "qa",
     dryRun: true,
-    llmProvider: "none",
-    llmModel: "",
+    llmProvider: "nvidia",
+    llmModel: "moonshotai/kimi-k2.5",
     scope: ["csv", "lookup"],
     maxIterations: 3,
     timeoutMinutes: 20,
@@ -50,7 +50,7 @@ function parseArgs(argv) {
     gateBuild: false,
     gateTest: false,
     gateLint: false,
-    editMode: "off",
+    editMode: "propose",
     editMaxFiles: 2,
     editAllowlist: [...DEFAULT_ALLOWLIST],
     requireNonMainBranch: true,
@@ -64,11 +64,16 @@ function parseArgs(argv) {
     semanticMatchCount: 8,
     semanticMinImportance: 40,
     semanticUseEmbeddings: true,
-    semanticEmbeddingProvider: "auto",
-    semanticEmbeddingModel: "text-embedding-3-small",
+    semanticEmbeddingProvider: "nvidia",
+    semanticEmbeddingModel: "nvidia/nv-embedqa-e5-v5",
     maxCandidateFiles: 80,
     applyMinFindChars: 120,
     buildFailureGuardThreshold: 2,
+    featureMaxFailedAttempts: 2,
+    featureLoopSignatureThreshold: 2,
+    rotateFeatureOnLoop: true,
+    applyRequireStableProposeRuns: 5,
+    lockToNvidia: true,
   };
 
   for (const raw of argv) {
@@ -103,6 +108,11 @@ function parseArgs(argv) {
     else if (raw.startsWith("--max-candidate-files=")) args.maxCandidateFiles = Number(raw.slice("--max-candidate-files=".length));
     else if (raw.startsWith("--apply-min-find-chars=")) args.applyMinFindChars = Number(raw.slice("--apply-min-find-chars=".length));
     else if (raw.startsWith("--build-failure-guard-threshold=")) args.buildFailureGuardThreshold = Number(raw.slice("--build-failure-guard-threshold=".length));
+    else if (raw.startsWith("--feature-max-failed-attempts=")) args.featureMaxFailedAttempts = Number(raw.slice("--feature-max-failed-attempts=".length));
+    else if (raw.startsWith("--feature-loop-signature-threshold=")) args.featureLoopSignatureThreshold = Number(raw.slice("--feature-loop-signature-threshold=".length));
+    else if (raw.startsWith("--rotate-feature-on-loop=")) args.rotateFeatureOnLoop = asBool(raw.slice("--rotate-feature-on-loop=".length), true);
+    else if (raw.startsWith("--apply-require-stable-propose-runs=")) args.applyRequireStableProposeRuns = Number(raw.slice("--apply-require-stable-propose-runs=".length));
+    else if (raw.startsWith("--lock-to-nvidia=")) args.lockToNvidia = asBool(raw.slice("--lock-to-nvidia=".length), true);
   }
 
   if (!VALID_MODES.has(args.mode)) args.mode = "custom";
@@ -114,11 +124,21 @@ function parseArgs(argv) {
   if (!Number.isFinite(args.editMaxFiles) || args.editMaxFiles < 1) args.editMaxFiles = 2;
   if (!Number.isFinite(args.semanticMatchCount) || args.semanticMatchCount < 1) args.semanticMatchCount = 8;
   if (!Number.isFinite(args.semanticMinImportance) || args.semanticMinImportance < 0) args.semanticMinImportance = 40;
-  args.semanticEmbeddingProvider = String(args.semanticEmbeddingProvider || "auto").trim().toLowerCase();
-  if (!["auto", "openai", "nvidia", "none"].includes(args.semanticEmbeddingProvider)) args.semanticEmbeddingProvider = "auto";
+  args.semanticEmbeddingProvider = String(args.semanticEmbeddingProvider || "nvidia").trim().toLowerCase();
+  if (!["auto", "openai", "nvidia", "none"].includes(args.semanticEmbeddingProvider)) args.semanticEmbeddingProvider = "nvidia";
   if (!Number.isFinite(args.maxCandidateFiles) || args.maxCandidateFiles < 10) args.maxCandidateFiles = 80;
   if (!Number.isFinite(args.applyMinFindChars) || args.applyMinFindChars < 40) args.applyMinFindChars = 120;
   if (!Number.isFinite(args.buildFailureGuardThreshold) || args.buildFailureGuardThreshold < 2) args.buildFailureGuardThreshold = 2;
+  if (!Number.isFinite(args.featureMaxFailedAttempts) || args.featureMaxFailedAttempts < 1) args.featureMaxFailedAttempts = 2;
+  if (!Number.isFinite(args.featureLoopSignatureThreshold) || args.featureLoopSignatureThreshold < 2) args.featureLoopSignatureThreshold = 2;
+  if (!Number.isFinite(args.applyRequireStableProposeRuns) || args.applyRequireStableProposeRuns < 1) args.applyRequireStableProposeRuns = 5;
+
+  if (args.lockToNvidia) {
+    args.llmProvider = "nvidia";
+    args.semanticEmbeddingProvider = "nvidia";
+    if (!args.llmModel) args.llmModel = "moonshotai/kimi-k2.5";
+    if (!args.semanticEmbeddingModel) args.semanticEmbeddingModel = "nvidia/nv-embedqa-e5-v5";
+  }
 
   return args;
 }
@@ -306,22 +326,122 @@ function evaluateBuildFailureGuard(progressFile, requestedEditMode, threshold = 
   };
 }
 
-function pickActiveFeature(featureDoc) {
+function getFeatureList(featureDoc) {
+  if (!featureDoc) return [];
+  if (Array.isArray(featureDoc)) return featureDoc;
+  if (Array.isArray(featureDoc.features)) return featureDoc.features;
+  return [];
+}
+
+function writeFeatureDoc(featureFile, doc) {
+  const abs = path.resolve(featureFile);
+  fs.writeFileSync(abs, JSON.stringify(doc, null, 2), "utf8");
+  return abs;
+}
+
+function withFeatureDoc(featureFile, updater) {
+  const abs = path.resolve(featureFile);
+  if (!fs.existsSync(abs)) return { updated: false, reason: "feature_file_missing", path: abs };
+  let doc = null;
+  try {
+    doc = JSON.parse(fs.readFileSync(abs, "utf8"));
+  } catch {
+    return { updated: false, reason: "feature_file_invalid_json", path: abs };
+  }
+  if (!doc || !Array.isArray(doc.features)) {
+    return { updated: false, reason: "feature_file_missing_features_array", path: abs };
+  }
+  const res = updater(doc);
+  if (res?.updated) writeFeatureDoc(abs, doc);
+  return { path: abs, ...res };
+}
+
+function pickActiveFeature(featureDoc, opts = {}) {
+  const skip = opts.skipIds instanceof Set ? opts.skipIds : new Set();
   if (!featureDoc) return null;
-  const features = Array.isArray(featureDoc)
-    ? featureDoc
-    : Array.isArray(featureDoc.features)
-      ? featureDoc.features
-      : [];
+  const features = getFeatureList(featureDoc);
   if (!features.length) return null;
-  const pending = features.filter((f) => f && f.passes !== true);
+  const pending = features.filter(
+    (f) => f && f.passes !== true && String(f.status || "active") !== "blocked" && !skip.has(String(f.id || ""))
+  );
   if (!pending.length) return null;
   pending.sort((a, b) => {
     const pa = Number.isFinite(a?.priority) ? a.priority : 9999;
     const pb = Number.isFinite(b?.priority) ? b.priority : 9999;
-    return pa - pb;
+    if (pa !== pb) return pa - pb;
+    const fa = Number.isFinite(a?.failed_attempts) ? a.failed_attempts : 0;
+    const fb = Number.isFinite(b?.failed_attempts) ? b.failed_attempts : 0;
+    return fa - fb;
   });
   return pending[0];
+}
+
+function evaluateApplyReadinessGuard(progressFile, requestedEditMode, requiredStableRuns = 5) {
+  if (requestedEditMode !== "apply") {
+    return { forcePropose: false, reason: "not_apply_mode", stable_propose_runs: 0, required: requiredStableRuns };
+  }
+  const rows = parseJsonlSafe(progressFile);
+  if (!rows.length) {
+    return { forcePropose: true, reason: "no_history", stable_propose_runs: 0, required: requiredStableRuns };
+  }
+  let stable = 0;
+  const recent = rows.slice(-80).reverse();
+  for (const row of recent) {
+    const effective = String(row?.effective_edit_mode || row?.edit_mode || "").toLowerCase();
+    if (effective !== "propose") continue;
+    const status = String(row?.status || "").toLowerCase();
+    if (status === "completed") {
+      stable += 1;
+      if (stable >= requiredStableRuns) break;
+      continue;
+    }
+    break;
+  }
+  if (stable >= requiredStableRuns) {
+    return { forcePropose: false, reason: "stable_propose_history", stable_propose_runs: stable, required: requiredStableRuns };
+  }
+  return {
+    forcePropose: true,
+    reason: "propose_stability_not_reached",
+    stable_propose_runs: stable,
+    required: requiredStableRuns,
+  };
+}
+
+function evaluateFeatureLoopGuard(progressFile, featureId, threshold = 2) {
+  if (!featureId) return { shouldRotate: false, reason: "no_feature", repeated_count: 0 };
+  const rows = parseJsonlSafe(progressFile)
+    .filter((r) => String(r?.active_feature?.id || "") === String(featureId))
+    .slice(-40)
+    .reverse();
+  if (!rows.length) return { shouldRotate: false, reason: "no_feature_history", repeated_count: 0 };
+
+  let repeated = 0;
+  let sig = null;
+  let filesSig = null;
+  for (const row of rows) {
+    if (String(row?.status || "") !== "failed") break;
+    const rowSig = String(row?.build_failure_signature || "").trim();
+    const rowFiles = Array.isArray(row?.changed_files_after_run)
+      ? row.changed_files_after_run.map((x) => normalizePath(x)).sort().join("|")
+      : "";
+    if (!rowSig || !rowFiles) break;
+    if (!sig) sig = rowSig;
+    if (!filesSig) filesSig = rowFiles;
+    if (rowSig !== sig || rowFiles !== filesSig) break;
+    repeated += 1;
+  }
+
+  if (repeated >= threshold) {
+    return {
+      shouldRotate: true,
+      reason: "repeated_feature_failure_signature",
+      repeated_count: repeated,
+      signature: sig,
+      files_signature: filesSig,
+    };
+  }
+  return { shouldRotate: false, reason: "below_threshold", repeated_count: repeated, signature: sig, files_signature: filesSig };
 }
 
 function gateStatusMap(gateResults) {
@@ -350,34 +470,65 @@ function shouldMarkFeaturePass(args, runEditMode, activeFeature, finalStatus, fa
 }
 
 function markFeaturePass(featureFile, featureId, meta = {}) {
-  const abs = path.resolve(featureFile);
-  if (!fs.existsSync(abs)) return { updated: false, reason: "feature_file_missing", path: abs };
-  let doc = null;
-  try {
-    doc = JSON.parse(fs.readFileSync(abs, "utf8"));
-  } catch {
-    return { updated: false, reason: "feature_file_invalid_json", path: abs };
-  }
-  if (!doc || !Array.isArray(doc.features)) {
-    return { updated: false, reason: "feature_file_missing_features_array", path: abs };
-  }
-  const idx = doc.features.findIndex((f) => f && f.id === featureId);
-  if (idx < 0) return { updated: false, reason: "feature_not_found", path: abs };
+  return withFeatureDoc(featureFile, (doc) => {
+    const idx = doc.features.findIndex((f) => f && f.id === featureId);
+    if (idx < 0) return { updated: false, reason: "feature_not_found" };
+    const prev = doc.features[idx];
+    if (prev.passes === true) return { updated: false, reason: "already_passed", feature: prev };
+    doc.features[idx] = {
+      ...prev,
+      passes: true,
+      status: "done",
+      failed_attempts: 0,
+      blocked_reason: null,
+      passed_at: new Date().toISOString(),
+      pass_evidence: {
+        ...(prev.pass_evidence || {}),
+        ...meta,
+      },
+    };
+    return { updated: true, reason: "feature_marked_pass", feature: doc.features[idx] };
+  });
+}
 
-  const prev = doc.features[idx];
-  if (prev.passes === true) return { updated: false, reason: "already_passed", path: abs, feature: prev };
+function markFeatureFailed(featureFile, featureId, maxFailedAttempts, meta = {}) {
+  return withFeatureDoc(featureFile, (doc) => {
+    const idx = doc.features.findIndex((f) => f && f.id === featureId);
+    if (idx < 0) return { updated: false, reason: "feature_not_found" };
+    const prev = doc.features[idx];
+    const failedAttempts = (Number(prev.failed_attempts || 0) || 0) + 1;
+    const blocked = failedAttempts >= maxFailedAttempts;
+    doc.features[idx] = {
+      ...prev,
+      status: blocked ? "blocked" : "active",
+      failed_attempts: failedAttempts,
+      last_failed_at: new Date().toISOString(),
+      blocked_reason: blocked ? String(meta?.reason || "feature_failed_attempt_limit") : null,
+      blocked_meta: blocked ? meta : prev.blocked_meta || null,
+    };
+    return {
+      updated: true,
+      reason: blocked ? "feature_blocked_after_failures" : "feature_failure_recorded",
+      feature: doc.features[idx],
+      blocked,
+    };
+  });
+}
 
-  doc.features[idx] = {
-    ...prev,
-    passes: true,
-    passed_at: new Date().toISOString(),
-    pass_evidence: {
-      ...(prev.pass_evidence || {}),
-      ...meta,
-    },
-  };
-  fs.writeFileSync(abs, JSON.stringify(doc, null, 2), "utf8");
-  return { updated: true, reason: "feature_marked_pass", path: abs, feature: doc.features[idx] };
+function markFeatureActiveProgress(featureFile, featureId, meta = {}) {
+  return withFeatureDoc(featureFile, (doc) => {
+    const idx = doc.features.findIndex((f) => f && f.id === featureId);
+    if (idx < 0) return { updated: false, reason: "feature_not_found" };
+    const prev = doc.features[idx];
+    doc.features[idx] = {
+      ...prev,
+      status: "active",
+      last_attempt_at: new Date().toISOString(),
+      last_success_meta: meta,
+      failed_attempts: Number(prev.failed_attempts || 0),
+    };
+    return { updated: true, reason: "feature_progress_recorded", feature: doc.features[idx] };
+  });
 }
 
 function appendJsonl(filePath, obj) {
@@ -652,7 +803,7 @@ function resolveEmbeddingProvider(args) {
 function resolveEmbeddingModel(provider, configuredModel) {
   const configured = String(configuredModel || "").trim();
   if (!configured) {
-    return provider === "nvidia" ? "baai/bge-m3" : "text-embedding-3-small";
+    return provider === "nvidia" ? "nvidia/nv-embedqa-e5-v5" : "text-embedding-3-small";
   }
   if (provider === "nvidia" && configured === "text-embedding-3-small") {
     return "nvidia/nv-embedqa-e5-v5";
@@ -886,14 +1037,32 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   args.prompt = resolvePrompt(args);
   const requestedEditMode = args.editMode;
-  const guardDecision = evaluateBuildFailureGuard(
+  const buildFailureGuard = evaluateBuildFailureGuard(
     args.progressFile,
     requestedEditMode,
     args.buildFailureGuardThreshold
   );
+  const applyReadinessGuard = evaluateApplyReadinessGuard(
+    args.progressFile,
+    requestedEditMode,
+    args.applyRequireStableProposeRuns
+  );
+  const guardDecision = {
+    build_failure_guard: buildFailureGuard,
+    apply_readiness_guard: applyReadinessGuard,
+    forcePropose: Boolean(buildFailureGuard.forcePropose || applyReadinessGuard.forcePropose),
+    reason: buildFailureGuard.forcePropose
+      ? buildFailureGuard.reason
+      : applyReadinessGuard.forcePropose
+        ? applyReadinessGuard.reason
+        : "none",
+  };
   const effectiveEditMode = guardDecision.forcePropose ? "propose" : requestedEditMode;
   const supabaseUrl = mustEnv("SUPABASE_URL", getEnv("VITE_SUPABASE_URL", ""));
   const serviceRole = mustEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (!args.dryRun && args.lockToNvidia && !process.env.NVIDIA_API_KEY) {
+    throw new Error("Missing env var: NVIDIA_API_KEY (required when lock-to-nvidia is enabled)");
+  }
   const supabase = createClient(supabaseUrl, serviceRole, { auth: { persistSession: false } });
 
   const runDir = path.join(args.outDir, `run_${tsStamp()}`);
@@ -939,6 +1108,10 @@ async function main() {
       semantic_embedding_model: args.semanticEmbeddingModel || null,
       edit_mode_requested: requestedEditMode,
       edit_mode_effective: effectiveEditMode,
+      lock_to_nvidia: args.lockToNvidia,
+      feature_max_failed_attempts: args.featureMaxFailedAttempts,
+      feature_loop_signature_threshold: args.featureLoopSignatureThreshold,
+      apply_require_stable_propose_runs: args.applyRequireStableProposeRuns,
       guard_decision: guardDecision,
       branch,
     },
@@ -950,8 +1123,33 @@ async function main() {
   let appliedPatches = 0;
   const startedAt = Date.now();
   const repoContext = collectRepoContext();
-  const featureDoc = readJsonSafe(args.featureFile, null);
-  const activeFeature = pickActiveFeature(featureDoc);
+  let featureDoc = readJsonSafe(args.featureFile, null);
+  let activeFeature = pickActiveFeature(featureDoc);
+  let featureGuard = null;
+  let featureTransition = null;
+  if (activeFeature?.id && args.rotateFeatureOnLoop) {
+    featureGuard = evaluateFeatureLoopGuard(
+      args.progressFile,
+      activeFeature.id,
+      args.featureLoopSignatureThreshold
+    );
+    if (featureGuard.shouldRotate) {
+      const blocked = markFeatureFailed(args.featureFile, activeFeature.id, 1, {
+        reason: "repeated_feature_failure_signature",
+        repeated_count: featureGuard.repeated_count,
+        signature: featureGuard.signature || null,
+        files_signature: featureGuard.files_signature || null,
+      });
+      featureDoc = readJsonSafe(args.featureFile, null);
+      const nextFeature = pickActiveFeature(featureDoc, { skipIds: new Set([String(activeFeature.id)]) });
+      featureTransition = {
+        blocked_feature_id: activeFeature.id,
+        blocked_reason: blocked.reason,
+        next_feature_id: nextFeature?.id || null,
+      };
+      activeFeature = nextFeature;
+    }
+  }
   let candidateFiles = [];
   let candidateContext = "";
   let contextPack = null;
@@ -960,8 +1158,12 @@ async function main() {
   let semanticSummary = "No semantic memory matches.";
   localLog.feature_file = path.resolve(args.featureFile);
   localLog.active_feature = activeFeature;
+  localLog.feature_guard = featureGuard;
+  localLog.feature_transition = featureTransition;
 
   if (guardDecision.forcePropose) {
+    const buildMeta = guardDecision.build_failure_guard || {};
+    const readinessMeta = guardDecision.apply_readiness_guard || {};
     await recordAction(supabase, runId, {
       stepIndex: 0,
       phase: "guard",
@@ -973,8 +1175,10 @@ async function main() {
         requested_edit_mode: requestedEditMode,
         effective_edit_mode: effectiveEditMode,
         reason: guardDecision.reason,
-        repeated_count: guardDecision.repeated_count,
-        signature: guardDecision.signature || null,
+        build_repeated_count: buildMeta.repeated_count || 0,
+        build_signature: buildMeta.signature || null,
+        stable_propose_runs: readinessMeta.stable_propose_runs || 0,
+        required_stable_propose_runs: readinessMeta.required || 0,
       },
     });
     await raiseIncident(
@@ -986,8 +1190,10 @@ async function main() {
       {
         requested_edit_mode: requestedEditMode,
         effective_edit_mode: effectiveEditMode,
-        repeated_count: guardDecision.repeated_count,
-        signature: guardDecision.signature || null,
+        build_repeated_count: buildMeta.repeated_count || 0,
+        build_signature: buildMeta.signature || null,
+        stable_propose_runs: readinessMeta.stable_propose_runs || 0,
+        required_stable_propose_runs: readinessMeta.required || 0,
       }
     );
   }
@@ -1505,12 +1711,24 @@ async function main() {
       local_runner: true,
       dry_run: args.dryRun,
       llm_provider: args.llmProvider,
+      llm_model: args.llmModel || null,
       scope: args.scope,
       edit_mode: effectiveEditMode,
       edit_mode_requested: requestedEditMode,
       edit_mode_effective: effectiveEditMode,
       guard_decision: guardDecision,
+      guard_build_repeated_count: guardDecision?.build_failure_guard?.repeated_count || 0,
+      guard_stable_propose_runs: guardDecision?.apply_readiness_guard?.stable_propose_runs || 0,
+      guard_required_stable_propose_runs: guardDecision?.apply_readiness_guard?.required || 0,
       applied_patches: appliedPatches,
+      active_feature: activeFeature
+        ? {
+            id: activeFeature.id || null,
+            title: activeFeature.title || null,
+            category: activeFeature.category || null,
+          }
+        : null,
+      feature_transition: featureTransition || null,
       gates: {
         lint: args.gateLint,
         build: args.gateBuild,
@@ -1559,6 +1777,33 @@ async function main() {
       },
     });
     localLog.feature_pass_update = markRes;
+  } else if (activeFeature?.id) {
+    if (failed || finalStatus === "failed") {
+      const failRes = markFeatureFailed(args.featureFile, activeFeature.id, args.featureMaxFailedAttempts, {
+        reason: errorMessage || "run_failed",
+        run_id: runId,
+        build_failure_signature: localLog.build_failure?.signature || null,
+      });
+      localLog.feature_failure_update = failRes;
+      if (failRes?.blocked) {
+        const refreshedDoc = readJsonSafe(args.featureFile, null);
+        const nextFeature = pickActiveFeature(refreshedDoc, { skipIds: new Set([String(activeFeature.id)]) });
+        localLog.feature_transition = {
+          ...(localLog.feature_transition || {}),
+          blocked_feature_id: activeFeature.id,
+          blocked_reason: failRes.reason,
+          next_feature_id: nextFeature?.id || null,
+        };
+      }
+    } else if (effectiveEditMode === "apply" && appliedPatches > 0) {
+      const progressRes = markFeatureActiveProgress(args.featureFile, activeFeature.id, {
+        run_id: runId,
+        final_status: finalStatus,
+        edit_mode: effectiveEditMode,
+        applied_patches: appliedPatches,
+      });
+      localLog.feature_progress_update = progressRes;
+    }
   }
 
   const outPath = path.join(runDir, "ralph_local_runner_summary.json");
@@ -1571,11 +1816,14 @@ async function main() {
       mode: args.mode,
       status: finalStatus,
       dry_run: args.dryRun,
+      llm_provider: args.llmProvider,
+      llm_model: args.llmModel || null,
       edit_mode: effectiveEditMode,
       requested_edit_mode: requestedEditMode,
       effective_edit_mode: effectiveEditMode,
       scope: args.scope,
       guard_decision: guardDecision,
+      feature_transition: featureTransition || null,
       active_feature: activeFeature
         ? {
             id: activeFeature.id || null,
@@ -1603,7 +1851,11 @@ async function main() {
   console.log(`- edit_mode_requested: ${requestedEditMode}`);
   console.log(`- edit_mode_effective: ${effectiveEditMode}`);
   if (guardDecision.forcePropose) {
-    console.log(`- guard: activated (${guardDecision.reason}, repeated=${guardDecision.repeated_count})`);
+    const br = guardDecision.build_failure_guard || {};
+    const pr = guardDecision.apply_readiness_guard || {};
+    console.log(
+      `- guard: activated (${guardDecision.reason}, build_repeated=${br.repeated_count || 0}, stable_propose=${pr.stable_propose_runs || 0}/${pr.required || 0})`
+    );
   }
   console.log(`- applied_patches: ${appliedPatches}`);
   console.log(`- gates: lint=${args.gateLint} build=${args.gateBuild} test=${args.gateTest}`);

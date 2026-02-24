@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+﻿import { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,6 +28,7 @@ export default function AdminReportEditor() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [rebuildProgress, setRebuildProgress] = useState(0);
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -72,16 +73,145 @@ export default function AdminReportEditor() {
     }
   };
 
+  const runReportRebuild = async (weeklyReportId: string) => {
+    const { data: before, error: beforeErr } = await supabase
+      .from("weekly_reports")
+      .select("rebuild_count,discover_report_id")
+      .eq("id", weeklyReportId)
+      .single();
+    if (beforeErr) throw new Error(beforeErr.message);
+    const beforeCount = Number((before as any)?.rebuild_count || 0);
+    const initialReportId = (before as any)?.discover_report_id ? String((before as any).discover_report_id) : null;
+
+    const waitForCountIncrease = async (fromCount: number, timeoutMs = 12 * 60 * 1000) => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        const { data: current, error: curErr } = await supabase
+          .from("weekly_reports")
+          .select("rebuild_count,kpis_json")
+          .eq("id", weeklyReportId)
+          .single();
+        if (curErr) continue;
+        const currentCount = Number((current as any)?.rebuild_count || 0);
+        if (currentCount > fromCount) {
+          return {
+            success: true,
+            baselineAvailable: Boolean((current as any)?.kpis_json?.baselineAvailable),
+            completedViaPolling: true,
+            rebuildCount: currentCount,
+          };
+        }
+      }
+      throw new Error("Rebuild timeout: backend did not confirm completion");
+    };
+
+    const isTimeoutLike = (msg: string) => /non-2xx|504|timeout|upstream request timeout/i.test(msg);
+    let reportId = initialReportId;
+    let stageCount = beforeCount;
+    let baselineAvailable = false;
+
+    // Step 1: core rebuild (no AI/exposure/evidence).
+    const core = await supabase.functions.invoke("discover-report-rebuild", {
+      body: { weeklyReportId, runAi: false, reinjectExposure: false, refreshMetadata: false, buildEvidence: false },
+    });
+    if (core.error || (core.data as any)?.success === false) {
+      const errMsg = core.error?.message || (core.data as any)?.error || "Rebuild failed";
+      if (isTimeoutLike(errMsg)) {
+        const polled = await waitForCountIncrease(stageCount);
+        stageCount = Number(polled.rebuildCount || stageCount + 1);
+        baselineAvailable = Boolean(polled.baselineAvailable);
+      } else {
+        throw new Error(`[core] ${errMsg}`);
+      }
+    } else {
+      stageCount += 1;
+      reportId = (core.data as any)?.reportId ? String((core.data as any).reportId) : reportId;
+      baselineAvailable = Boolean((core.data as any)?.baselineAvailable);
+    }
+
+    if (!reportId) {
+      const { data: wrAfter } = await supabase
+        .from("weekly_reports")
+        .select("discover_report_id")
+        .eq("id", weeklyReportId)
+        .single();
+      reportId = (wrAfter as any)?.discover_report_id ? String((wrAfter as any).discover_report_id) : null;
+    }
+    if (!reportId) throw new Error("Missing discover_report_id after core rebuild");
+
+    // Step 2: evidence packs (mandatory).
+    const evidence = await supabase.functions.invoke("discover-report-rebuild", {
+      body: {
+        weeklyReportId,
+        reportId,
+        evidenceOnly: true,
+        buildEvidence: true,
+        runAi: false,
+        reinjectExposure: false,
+        refreshMetadata: false,
+      },
+    });
+    if (evidence.error || (evidence.data as any)?.success === false) {
+      const errMsg = evidence.error?.message || (evidence.data as any)?.error || "Evidence build failed";
+      if (isTimeoutLike(errMsg)) {
+        const polled = await waitForCountIncrease(stageCount);
+        stageCount = Number(polled.rebuildCount || stageCount + 1);
+      } else {
+        throw new Error(`[evidence] ${errMsg}`);
+      }
+    } else {
+      stageCount += 1;
+    }
+
+    // Step 3: inject discovery exposure payload (light mode; timeline on-demand in viewer).
+    const exposure = await supabase.functions.invoke("discover-exposure-report", {
+      body: { weeklyReportId, embedTimelineLimit: 0, includeCollections: false },
+    });
+    if (exposure.error || (exposure.data as any)?.success === false) {
+      throw new Error(`[exposure] ${exposure.error?.message || (exposure.data as any)?.error || "Exposure injection failed"}`);
+    }
+
+    // Step 4: AI narratives.
+    const ai = await supabase.functions.invoke("discover-report-ai", { body: { reportId } });
+    if (ai.error || (ai.data as any)?.success === false) {
+      throw new Error(`[ai] ${ai.error?.message || (ai.data as any)?.error || "AI generation failed"}`);
+    }
+
+    return {
+      reportId,
+      baselineAvailable,
+      aiCompleted: true,
+      reinjectedExposure: true,
+      ranAi: true,
+      evidenceBuilt: true,
+    };
+  };
+
   const togglePublish = async () => {
     if (!id || !report) return;
     const newStatus = report.status === "published" ? "draft" : "published";
-    const { error } = await supabase.from("weekly_reports").update({
-      status: newStatus,
-      published_at: newStatus === "published" ? new Date().toISOString() : null,
-    }).eq("id", id);
-    if (!error) {
-      setReport({ ...report, status: newStatus });
+    try {
+      if (newStatus === "published") {
+        setPublishing(true);
+        await runReportRebuild(id);
+      }
+
+      const { error } = await supabase.from("weekly_reports").update({
+        status: newStatus,
+        published_at: newStatus === "published" ? new Date().toISOString() : null,
+      }).eq("id", id);
+      if (error) throw error;
+
+      const { data: refreshed } = await supabase.from("weekly_reports").select("*").eq("id", id).single();
+      if (refreshed) setReport(refreshed);
+      else setReport({ ...report, status: newStatus });
       toast({ title: newStatus === "published" ? t("admin.published") : t("admin.unpublished") });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({ title: t("common.error"), description: msg, variant: "destructive" });
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -90,20 +220,23 @@ export default function AdminReportEditor() {
     setRebuilding(true);
     setRebuildProgress(0);
 
-    // Animate progress through estimated stages
     const progressInterval = setInterval(() => {
-      setRebuildProgress(prev => {
-        if (prev < 30) return prev + 3;      // Data phase ~10s
-        if (prev < 60) return prev + 2;      // Exposure phase ~15s
-        if (prev < 85) return prev + 1;      // AI phase ~25s
-        if (prev < 95) return prev + 0.3;    // Finishing
+      setRebuildProgress((prev) => {
+        if (prev < 30) return prev + 3;
+        if (prev < 60) return prev + 2;
+        if (prev < 85) return prev + 1;
+        if (prev < 95) return prev + 0.3;
         return prev;
       });
     }, 1000);
 
-    const { error, data } = await supabase.functions.invoke("discover-report-rebuild", {
-      body: { weeklyReportId: id, runAi: true, reinjectExposure: true, refreshMetadata: false },
-    });
+    let data: any = null;
+    let error: Error | null = null;
+    try {
+      data = await runReportRebuild(id);
+    } catch (e) {
+      error = e instanceof Error ? e : new Error(String(e));
+    }
 
     clearInterval(progressInterval);
     setRebuildProgress(100);
@@ -117,7 +250,37 @@ export default function AdminReportEditor() {
       toast({ title: t("common.error"), description: error.message, variant: "destructive" });
       return;
     }
-    toast({ title: t("admin.regenerated"), description: `baseline=${data?.baselineAvailable ? "yes" : "no"} · metadataTitlePct=${Math.round((data?.metadataCoverage?.titlePct || 0) * 100)}%` });
+
+    if (report.status === "published") {
+      const { error: unpublishErr } = await supabase
+        .from("weekly_reports")
+        .update({ status: "draft", published_at: null } as any)
+        .eq("id", id);
+      if (unpublishErr) {
+        toast({ title: t("common.error"), description: unpublishErr.message, variant: "destructive" });
+        return;
+      }
+
+      const { error: republishErr } = await supabase
+        .from("weekly_reports")
+        .update({ status: "published", published_at: new Date().toISOString() } as any)
+        .eq("id", id);
+      if (republishErr) {
+        toast({ title: t("common.error"), description: republishErr.message, variant: "destructive" });
+        return;
+      }
+
+      toast({
+        title: t("admin.regenerated"),
+        description: `${t("admin.published")} · baseline=${data?.baselineAvailable ? "yes" : "no"}`,
+      });
+    } else {
+      toast({
+        title: t("admin.regenerated"),
+        description: `baseline=${data?.baselineAvailable ? "yes" : "no"} · evidence=yes · exposure=yes · ai=yes`,
+      });
+    }
+
     const { data: refreshed } = await supabase.from("weekly_reports").select("*").eq("id", id).single();
     if (refreshed) setReport(refreshed);
   };
@@ -182,7 +345,11 @@ export default function AdminReportEditor() {
             <RefreshCw className={"h-4 w-4 mr-1 " + (rebuilding ? "animate-spin" : "")} />
             {rebuilding ? `${t("admin.regenerating")} ${Math.round(rebuildProgress)}%` : t("admin.regenerateDb")}
           </Button>
-          <Button variant={report.status === "published" ? "destructive" : "default"} onClick={togglePublish}>
+          <Button
+            variant={report.status === "published" ? "destructive" : "default"}
+            onClick={togglePublish}
+            disabled={publishing || rebuilding}
+          >
             {report.status === "published" ? <><EyeOff className="h-4 w-4 mr-1" /> {t("admin.unpublish")}</> : <><Globe className="h-4 w-4 mr-1" /> {t("admin.publish")}</>}
           </Button>
         </div>
@@ -203,7 +370,7 @@ export default function AdminReportEditor() {
                   {coverUrl ? (
                     <div className="relative group">
                       <img src={coverUrl} alt="Cover" className="h-32 w-56 object-cover rounded-lg border" />
-                      <button onClick={() => setCoverUrl("")} className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full w-6 h-6 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                      <button onClick={() => setCoverUrl("")} className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full w-6 h-6 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">Ã—</button>
                     </div>
                   ) : (
                     <div className="h-32 w-56 rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center">
@@ -250,7 +417,7 @@ export default function AdminReportEditor() {
                     {report.status === "published" ? t("common.published") : t("common.draft")}
                   </Badge>
                   <span>Slug: {report.public_slug}</span>
-                  <span>·</span>
+                  <span>Â·</span>
                   <span>{report.week_key}</span>
                 </div>
               </CardContent>
@@ -324,3 +491,5 @@ export default function AdminReportEditor() {
     </div>
   );
 }
+
+

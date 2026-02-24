@@ -1,257 +1,94 @@
 # Usage Guide
 
-This guide explains how to use the Epic Insight Engine platform.
+This guide covers how to use the platform in the current internal phase.
 
-## Table of Contents
+## Access Levels
 
-1. [Authentication](#authentication)
-2. [Public Portal](#public-portal)
-3. [Client Dashboard](#client-dashboard)
-4. [Admin Panel](#admin-panel)
-5. [Reports](#reports)
-6. [Island Lookup](#island-lookup)
+- Public: no login required.
+- Authenticated user: `/app` area.
+- Admin/Editor: `/admin` area.
 
----
+Roles are resolved from `user_roles`.
 
-## Authentication
+## Public Routes
 
-### Signing Up
+- `/`: home/landing.
+- `/discover`: live discovery view.
+- `/reports`: published reports list.
+- `/reports/:slug`: public report detail.
 
-1. Navigate to `/auth`
-2. Enter your email and password
-3. Click "Sign Up"
-4. Check your email for confirmation link
-5. Click the confirmation link
-6. You will be redirected to the dashboard
+## Auth
 
-### Signing In
+Go to `/auth`.
 
-1. Navigate to `/auth`
-2. Enter your credentials
-3. Click "Sign In"
-4. You will be redirected to your dashboard
+Supported flows:
 
-### Password Reset
+1. Email/password sign in.
+2. Google OAuth sign in.
 
-1. Click "Forgot Password" on the auth page
-2. Enter your email
-3. Check your inbox for reset link
-4. Create a new password
+## App Area (`/app`)
 
----
+### Dashboard
 
-## Public Portal
-
-The public portal is accessible without authentication.
-
-### Home Page (`/`)
-
-- Platform overview
-- Featured reports
-- Quick links to recent reports
-
-### Reports List (`/reports`)
-
-- Browse all published reports
-- Filter by date
-- Search functionality
-
-### Report View (`/reports/:slug`)
-
-- Detailed report with all metrics
-- Shareable via URL
-- Export options (if available)
-
----
-
-## Client Dashboard
-
-Access at `/app` (requires authentication, client role or higher)
-
-### Overview
-
-- Dashboard with key metrics
-- Recent activity
-- Quick access to projects
-
-### Project Detail (`/app/projects/:id`)
-
-- View project details
-- Associated reports
-- Island statistics
-
-### Report Dashboard (`/app/projects/:id/reports/:reportId`)
-
-- Detailed metrics for a specific report
-- Interactive charts
-- Download options
+- Create and manage projects.
+- View project-level uploads and report counts.
 
 ### Island Lookup (`/app/island-lookup`)
 
-Search and explore individual islands:
+- Search island by code.
+- View metadata, daily metrics, exposure signals, weekly history, category peers, metadata events.
 
-1. Enter an island code
-2. View current metrics
-3. See historical data
-4. Check trends
+### Project pages
 
----
+- `/app/projects/:id`
+- `/app/projects/:id/reports/:reportId`
 
-## Admin Panel
+Used for project-scoped CSV/report workflows.
 
-Access at `/admin` (requires admin or editor role)
+## Admin Area (`/admin`)
 
-### Overview (`/admin`)
+### Command Center (`/admin`)
 
-- Platform KPIs
-- System status
-- Recent reports
+- Pipeline health and alerts.
+- Cron job state and controls.
+- Metadata/exposure/report status.
+- Ralph monitoring (runs, actions, evals, incidents, memory stats).
 
-### Reports Management
+### Reports (`/admin/reports`)
 
-#### View All Reports (`/admin/reports`)
+- Review and manage weekly reports.
+- Open editor and publish flows.
 
-- List of all reports
-- Status indicators (draft, published)
-- Quick actions (edit, delete, publish)
+### Exposure (`/admin/exposure`)
 
-#### Create New Report
+- Exposure target state and operational controls.
 
-1. Click "New Report" in admin panel
-2. Configure report settings
-3. Run data collection
-4. Review and publish
+### Intel (`/admin/intel`)
 
-#### Edit Report (`/admin/reports/:id/edit`)
+- Public intel status and derived metrics.
 
-- Modify report content
-- Update KPIs
-- Add custom sections
-- AI-assisted editing
+### Panels (`/admin/panels`)
 
-#### Publish Report
+- Panel-related admin controls.
 
-1. Complete all required fields
-2. Set publication date
-3. Click "Publish"
-4. Report becomes publicly accessible
+## Operational Flows
 
----
+### Weekly report generation
 
-## Reports
+1. Start pipeline from admin.
+2. Collector runs catalog/metrics/finalize.
+3. Rebuild and AI layers produce final sections.
+4. Publish report to public routes.
 
-### Report Structure
+### Metadata and exposure health
 
-Each weekly report contains:
-
-- **KPIs** - Platform-wide metrics
-- **Rankings** - Top islands by various metrics
-- **AI Narratives** - Automated insights
-- **Trends** - Trending topics and patterns
-- **Categories** - Category breakdowns
-
-### Key Metrics
-
-| Metric | Description |
-|--------|-------------|
-| Total Plays | Number of game sessions |
-| Unique Players | Distinct players |
-| Minutes Played | Total time played |
-| Peak CCU | Highest concurrent users |
-| D1/D7 Retention | Day 1/7 retention rate |
-| Favorites | Total favorites |
-| Recommendations | Total recommendations |
-
-### Rankings Available
-
-- Top by Peak CCU
-- Top by Unique Players
-- Top by Total Plays
-- Top by Minutes Played
-- Top by Retention (D1/D7)
-- Top Creators
-- Top Categories
-- Trending Topics
-- Top Risers/Decliners
-
----
-
-## Island Lookup
-
-Search for any Fortnite island using its island code.
-
-### How to Use
-
-1. Go to `/app/island-lookup`
-2. Enter the island code (e.g., `1234-5678-9012`)
-3. View detailed metrics
-
-### Information Available
-
-- Current statistics
-- Historical performance
-- Trend analysis
-- Category information
-
----
-
-## API Endpoints
-
-### Edge Functions
-
-| Function | Purpose |
-|----------|---------|
-| `discover-collector` | Collects island data from Fortnite API |
-| `ai-analyst` | Generates AI insights |
-| `discover-island-lookup` | Island search functionality |
-| `discover-report-ai` | Report AI generation |
-
-### Authentication
-
-All authenticated endpoints require:
-- Valid Supabase session token
-- Appropriate role (admin/editor/client)
-
----
-
-## Best Practices
-
-### For Admins
-
-1. Run data collection weekly
-2. Review AI narratives before publishing
-3. Check for anomalies in metrics
-4. Publish reports promptly
-
-### For Editors
-
-1. Verify data accuracy
-2. Add contextual notes
-3. Review rankings for errors
-
-### For Clients
-
-1. Check your assigned projects regularly
-2. Review report summaries
-3. Use island lookup for research
-
----
+1. Check command center alerts.
+2. Verify cron/job execution and stale indicators.
+3. Trigger backfill/maintenance modes when needed.
 
 ## Troubleshooting
 
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| Report not loading | Check internet connection |
-| Metrics seem wrong | Wait for data refresh |
-| Can't access admin | Contact admin for role upgrade |
-| Island not found | Verify island code format |
-
-### Support
-
-For additional help:
-- Check the README for technical details
-- Review error messages in console
-- Contact system administrator
-
+1. Check browser console for frontend errors.
+2. Check Supabase Edge Function logs for failing function names.
+3. Check command center alerts for pipeline-specific actions.
+4. Validate role assignment in `user_roles` if admin screens are blocked.

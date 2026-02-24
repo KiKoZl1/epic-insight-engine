@@ -24,7 +24,7 @@ Ralph runs can produce iterative changes. Branch isolation is required to:
 4. Open PR with run summary
 5. Human review
 6. Merge to `main`
-7. Deploy via Lovable
+7. Deploy via your own pipeline (local -> Supabase/hosting target)
 
 ## If you absolutely cannot create branches
 Use strict safeguards:

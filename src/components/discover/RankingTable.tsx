@@ -1,5 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { memo, useMemo } from "react";
 import { LucideIcon } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface RankingItem {
   name: string;
@@ -29,13 +30,13 @@ const BADGE_STYLES = [
 
 function defaultFormatter(v: number): string {
   const n = Number(v);
-  if (isNaN(n)) return "—";
+  if (isNaN(n)) return "--";
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
   return n.toLocaleString("en-US");
 }
 
-export function RankingTable({
+function RankingTableBase({
   title,
   icon: Icon,
   items,
@@ -45,8 +46,13 @@ export function RankingTable({
   showBadges = false,
   onImageClick,
 }: RankingTableProps) {
-  if (!items || items.length === 0) return null;
-  const maxVal = Math.max(...items.map((i) => i.value), 1);
+  const safeItems = useMemo(() => (Array.isArray(items) ? items.slice(0, 10) : []), [items]);
+  const maxVal = useMemo(
+    () => (safeItems.length > 0 ? Math.max(...safeItems.map((i) => Number(i.value) || 0), 1) : 1),
+    [safeItems],
+  );
+
+  if (safeItems.length === 0) return null;
 
   return (
     <Card className="border-border/50">
@@ -57,8 +63,11 @@ export function RankingTable({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-1.5">
-        {items.slice(0, 10).map((item, idx) => {
+        {safeItems.map((item, idx) => {
           const badge = showBadges && idx < 3 ? BADGE_STYLES[idx] : null;
+          const itemValue = Number(item.value) || 0;
+          const width = Math.max(0, Math.min(100, (itemValue / maxVal) * 100));
+
           return (
             <div
               key={idx}
@@ -92,13 +101,13 @@ export function RankingTable({
                     )}
                   </div>
                   <span className="text-xs font-display font-semibold whitespace-nowrap text-primary">
-                    {item.label || valueFormatter(item.value)}
+                    {item.label || valueFormatter(itemValue)}
                   </span>
                 </div>
                 <div className="h-1 rounded-full bg-secondary overflow-hidden">
                   <div
                     className={`h-full rounded-full ${barColor} transition-all`}
-                    style={{ width: `${(item.value / maxVal) * 100}%`, opacity: 0.7 }}
+                    style={{ width: `${width}%`, opacity: 0.7 }}
                   />
                 </div>
               </div>
@@ -109,3 +118,5 @@ export function RankingTable({
     </Card>
   );
 }
+
+export const RankingTable = memo(RankingTableBase);

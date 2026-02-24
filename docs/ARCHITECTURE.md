@@ -1,300 +1,79 @@
 # Architecture Guide
 
-This document provides an in-depth look at the Epic Insight Engine architecture.
+This is the current architecture for Epic Insight Engine in the self-hosted phase (local-first + Supabase-owned backend).
 
-## System Overview
+## Runtime Model
 
-Epic Insight Engine is a full-stack analytics platform that:
+1. Frontend: React + Vite app.
+2. Backend: Supabase project (Postgres, Auth, Storage, Edge Functions, pg_cron jobs).
+3. Automation: Ralph local runner (`scripts/ralph_local_runner.mjs`) + loop harness (`scripts/ralph_loop.ps1`).
 
-1. **Collects** data from Fortnite's public API
-2. **Processes** and normalizes the data
-3. **Stores** in Supabase database
-4. **Serves** through a React frontend with role-based access
-
-## High-Level Architecture
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Fortnite API  │────▶│  Edge Functions  │────▶│    Supabase     │
-│  (ecosystem/v1) │     │ (discover-       │     │   (Database)    │
-└─────────────────┘     │   collector)      │     └────────┬────────┘
-                       └────────┬─────────┘              │
-                                │                        │
-                                ▼                        ▼
-                       ┌──────────────────┐     ┌─────────────────┐
-                       │  Data Processing │     │   React App     │
-                       │  & Normalization │     │   (Frontend)    │
-                       └──────────────────┘     └────────┬────────┘
-                                                       │
-                                ┌──────────────────────┘
-                                ▼
-                       ┌──────────────────┐
-                       │   Public Portal │
-                       │   /reports/:slug │
-                       └──────────────────┘
-```
-
-## Frontend Architecture
-
-### Tech Stack
-
-- **Vite** - Build tool and dev server
-- **React 18** - UI framework
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Styling
-- **shadcn/ui** - Component library
-- **React Router** - Client-side routing
-- **React Query** - Server state management
-
-### Component Structure
-
-```
-src/
-├── components/
-│   ├── ui/              # Base UI components (shadcn)
-│   ├── discover/        # Discovery-specific components
-│   ├── AdminLayout.tsx  # Admin panel layout
-│   ├── AppLayout.tsx    # Client app layout
-│   ├── PublicLayout.tsx # Public pages layout
-│   └── *.tsx            # Shared components
-├── pages/
-│   ├── public/          # Unauthenticated pages
-│   ├── admin/           # Admin dashboard pages
-│   └── *.tsx            # Main application pages
-├── hooks/
-│   ├── useAuth.tsx      # Authentication context
-│   └── useMobile.tsx    # Mobile detection
-├── integrations/
-│   └── supabase/        # Supabase client
-└── lib/
-    └── parsing/         # Data utilities
-```
-
-### Routing Structure
-
-| Path | Component | Access |
-|------|-----------|--------|
-| `/` | Home | Public |
-| `/reports` | ReportsList | Public |
-| `/reports/:slug` | ReportView | Public |
-| `/auth` | Auth | Public |
-| `/app` | AppLayout | Auth |
-| `/app/*` | Client pages | Auth |
-| `/admin` | AdminLayout | Admin/Editor |
-| `/admin/*` | Admin pages | Admin/Editor |
-
-## Backend Architecture
-
-### Supabase Components
-
-#### Authentication
-- Email/password authentication
-- Row Level Security (RLS) policies
-- Role-based access control
-
-#### Database Tables
-
-| Table | Purpose |
-|-------|---------|
-| `discover_reports` | Weekly report metadata |
-| `discover_report_islands` | Island data per report |
-| `discover_report_queue` | Processing queue |
-| `discover_islands_cache` | Cached island metadata |
-| `discover_islands` | Master island list |
-| `weekly_reports` | CMS for public reports |
-| `user_roles` | Role assignments |
-
-### Edge Functions
-
-#### discover-collector
-
-The main data collection function that:
-
-1. **Catalog Phase** - Fetches island catalog from Fortnite API
-2. **Metrics Phase** - Collects 7-day metrics for each island
-3. **Finalize Phase** - Computes rankings and KPIs
-
-```typescript
-// Modes
-type CollectorMode = "start" | "catalog" | "metrics" | "finalize";
-```
-
-#### ai-analyst
-
-Generates AI-powered insights and narratives using:
-- Platform KPIs
-- Island rankings
-- Trend data
-
-#### discover-island-lookup
-
-Provides search functionality for islands by code.
-
-#### discover-report-ai
-
-AI generation for weekly reports.
-
-## Ralph Operations Layer
-
-Ralph is used as an operations orchestrator (not as a model replacement).
-
-Core goals:
-
-1. Run controlled improvement loops for `dev`, `dataops`, `report`, and `qa`.
-2. Enforce hard gates (build/test/smoke/KPI thresholds).
-3. Persist audit and health telemetry for each run.
-
-Operational tables:
-
-- `ralph_runs`
-- `ralph_actions`
-- `ralph_eval_results`
-- `ralph_incidents`
-
-Operational RPCs:
-
-- `start_ralph_run`
-- `finish_ralph_run`
-- `record_ralph_action`
-- `record_ralph_eval`
-- `raise_ralph_incident`
-- `resolve_ralph_incident`
-- `get_ralph_health`
-
-## Data Flow
-
-### Collection Flow
-
-```
-1. Admin initiates report
-   └─▶ discover-collector?mode=start
-
-2. Fetch island catalog (paginated)
-   └─▶ discover-collector?mode=catalog
-
-3. Collect metrics for each island
-   └─▶ discover-collector?mode=metrics
-
-4. Finalize and compute rankings
-   └─▶ discover-collector?mode=finalize
-
-5. AI analysis
-   └─▶ ai-analyst
-
-6. Generate public report
-   └─▶ discover-report-ai
-```
-
-### Query Flow
-
-```
-User Request
-    │
-    ▼
-React Router
-    │
-    ▼
-Auth Check (ProtectedRoute/AdminRoute)
-    │
-    ▼
-Page Component
-    │
-    ▼
-React Query (TanStack Query)
-    │
-    ▼
-Supabase Client
-    │
-    ▼
-RLS Policy Check
-    │
-    ▼
-Database / Edge Function
-```
-
-## Security
-
-### Authentication Flow
-
-1. User signs in via Supabase Auth
-2. Session stored in localStorage
-3. Token sent with each request
-4. Role fetched from `user_roles` table
-
-### Role-Based Access
-
-```typescript
-type AppRole = "admin" | "editor" | "client";
-
-// Middleware checks
-AdminRoute → isAdmin || isEditor
-ProtectedRoute → authenticated user
-```
-
-### Row Level Security
-
-- Public reports: Readable by all (anon + authenticated)
-- Private data: Restricted by user_id
-- Admin operations: Admin-only via service_role
-
-## State Management
-
-### Client State
-- React Context for auth
-- Local state for UI
-
-### Server State
-- React Query for caching
-- Automatic refetch on window focus
-- Stale-while-revalidate pattern
-
-## Performance Optimizations
+## Main Components
 
 ### Frontend
-- Code splitting by route
-- Component lazy loading
-- React Query caching
-- Virtual scrolling for large lists
 
-### Backend
-- Batch database operations
-- Adaptive concurrency in collectors
-- Rate limiting handling
-- Chunked processing
+- Stack: React 18, TypeScript, React Router, TanStack Query, Tailwind, shadcn/ui.
+- Main route groups:
+  - Public: `/`, `/discover`, `/reports`, `/reports/:slug`
+  - App: `/app`, `/app/island-lookup`, project/report pages
+  - Admin: `/admin`, `/admin/reports`, `/admin/exposure`, `/admin/intel`, `/admin/panels`
 
-## Deployment
+### Supabase
 
-### Frontend
-- Vite build to static files
-- Deploy to any static host (Vercel, Netlify, etc.)
+- Auth: email/password + Google OAuth (configured in Supabase).
+- Database: schema versioned in `supabase/migrations`.
+- Edge Functions: in `supabase/functions`.
+- Cron orchestration: pg_cron jobs calling Edge Functions.
 
-### Backend
-- Supabase managed services
-- Edge Functions on Supabase Edge Network
-- Database on Supabase
+### Edge Function Domains
 
-### Environment Variables
-```
-VITE_SUPABASE_URL
-VITE_SUPABASE_PUBLISHABLE_KEY
-```
+- Weekly report pipeline:
+  - `discover-collector`
+  - `discover-report-rebuild`
+  - `discover-report-ai`
+  - `ai-analyst`
+- Discovery/exposure:
+  - `discover-exposure-collector`
+  - `discover-exposure-report`
+  - `discover-exposure-timeline`
+- Metadata/links:
+  - `discover-links-metadata-collector`
+  - `discover-rails-resolver`
+- Lookup:
+  - `discover-island-lookup`
+- Gap tooling:
+  - `discover-enqueue-gap`
 
-## Development Workflow
+## Data Domains
 
-1. **Local Development**
-   - Vite dev server on port 8080
-   - Supabase local or cloud
+1. Reports: weekly report generation, queue, publish payloads.
+2. Exposure: panel/surface visibility and rollups.
+3. Metadata graph: islands, links, collections, edges.
+4. Public intel: premium/emerging/pollution slices.
+5. Ralph ops + memory: runs, actions, incidents, context and semantic memory.
 
-2. **Testing**
-   - Vitest for unit tests
-   - React Testing Library for components
+## Security Model
 
-3. **Building**
-   - TypeScript compilation
-   - ESLint linting
-   - Vite production build
+- RLS enabled for app tables.
+- `user_roles` drives role checks (`admin`, `editor`, `client`).
+- Admin operations are enforced by role checks and/or service-role paths.
+- Edge Functions requiring privileged operations validate service token or explicit admin/editor access depending on mode.
 
-4. **Deployment**
-   - Push to git
-   - Automatic deployment via platform
+## Configuration
 
+Core env vars for local development:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `NVIDIA_API_KEY` (preferred for Ralph memory/LLM flows)
+- `OPENAI_API_KEY` (optional fallback for selected flows)
+
+See `docs/SETUP.md` for full setup instructions.
+
+## Operational Notes
+
+1. Source of truth for schema and RPCs is `supabase/migrations`.
+2. Source of truth for pipelines is Edge Functions + cron jobs in the target Supabase project.
+3. `docs/archive/` contains historical references only.
