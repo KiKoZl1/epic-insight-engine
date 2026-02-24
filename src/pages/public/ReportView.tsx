@@ -327,6 +327,148 @@ export default function ReportView() {
     () => (Array.isArray(rankings.partnerSignals) ? rankings.partnerSignals : []),
     [rankings.partnerSignals],
   );
+  const qualityComposite = useMemo(
+    () => (Array.isArray(rankings.mapQualityCompositeTop) ? rankings.mapQualityCompositeTop : []),
+    [rankings.mapQualityCompositeTop],
+  );
+  const advocacyGapLeaders = useMemo(
+    () => (Array.isArray(rankings.advocacyGapLeaders) ? rankings.advocacyGapLeaders : []),
+    [rankings.advocacyGapLeaders],
+  );
+  const advocacyOverIndexedRecs = useMemo(
+    () => (Array.isArray(rankings.advocacyOverIndexedRecs) ? rankings.advocacyOverIndexedRecs : []),
+    [rankings.advocacyOverIndexedRecs],
+  );
+  const exposurePanelTop = useMemo(
+    () => (Array.isArray(rankings.exposureEfficiencyPanelTop) ? rankings.exposureEfficiencyPanelTop : []),
+    [rankings.exposureEfficiencyPanelTop],
+  );
+  const exposureCreatorTop = useMemo(
+    () => (Array.isArray(rankings.exposureEfficiencyCreatorTop) ? rankings.exposureEfficiencyCreatorTop : []),
+    [rankings.exposureEfficiencyCreatorTop],
+  );
+  const exposureCreatorBottom = useMemo(
+    () => (Array.isArray(rankings.exposureEfficiencyCreatorBottom) ? rankings.exposureEfficiencyCreatorBottom : []),
+    [rankings.exposureEfficiencyCreatorBottom],
+  );
+  const linkGraphTopParents = useMemo(
+    () => (Array.isArray(rankings?.linkGraphHealth?.top_parents) ? rankings.linkGraphHealth.top_parents : []),
+    [rankings?.linkGraphHealth?.top_parents],
+  );
+  const emergingNow = useMemo(
+    () => (Array.isArray(rankings.emergingNow) ? rankings.emergingNow : []),
+    [rankings.emergingNow],
+  );
+
+  const exposureDeepDive = useMemo(() => {
+    const topByPanel = Array.isArray(exposure?.topByPanel) ? exposure.topByPanel : [];
+    const panelRankTimeline = Array.isArray(exposure?.panelRankTimeline) ? exposure.panelRankTimeline : [];
+    const resolvedCollections = Array.isArray(exposure?.resolvedCollections) ? exposure.resolvedCollections : [];
+
+    const panelAgg = new Map<string, { panel: string; minutes: number; items: Set<string>; profiles: Set<string> }>();
+    for (const row of topByPanel) {
+      const panel = String(row?.panelDisplayName || row?.panelName || "Unknown");
+      const profile = String(row?.targetId || row?.region || "unknown");
+      const code = String(row?.linkCode || "");
+      const cur = panelAgg.get(panel) || { panel, minutes: 0, items: new Set<string>(), profiles: new Set<string>() };
+      cur.minutes += Number(row?.minutesExposed || 0);
+      if (code) cur.items.add(code);
+      if (profile) cur.profiles.add(profile);
+      panelAgg.set(panel, cur);
+    }
+    const panelMixItems = Array.from(panelAgg.values())
+      .map((p) => ({
+        name: p.panel,
+        panel: p.panel,
+        value: Number(p.minutes.toFixed(1)),
+        label: `${p.items.size} islands`,
+        islands: p.items.size,
+        profiles: p.profiles.size,
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    const byIslandPanel = new Map<string, { code: string; title: string; creator: string | null; ranks: Set<number>; minutes: number; image_url: string | null }>();
+    for (const seg of panelRankTimeline) {
+      const code = String(seg?.linkCode || "");
+      const panel = String(seg?.panelName || "");
+      if (!code || !panel) continue;
+      const key = `${code}|||${panel}`;
+      const cur = byIslandPanel.get(key) || {
+        code,
+        title: String(seg?.title || code),
+        creator: seg?.creatorCode || null,
+        ranks: new Set<number>(),
+        minutes: 0,
+        image_url: seg?.imageUrl || null,
+      };
+      const rank = Number(seg?.rank || 0);
+      if (rank > 0) cur.ranks.add(rank);
+      cur.minutes += Number(seg?.durationMinutes || 0);
+      if (!cur.image_url && seg?.imageUrl) cur.image_url = seg.imageUrl;
+      byIslandPanel.set(key, cur);
+    }
+    const rankDynamicsItems = Array.from(byIslandPanel.values())
+      .map((x) => {
+        const ranks = Array.from(x.ranks.values()).sort((a, b) => a - b);
+        const rankSpread = ranks.length > 0 ? ranks[ranks.length - 1] - ranks[0] : 0;
+        return {
+          name: x.title || x.code,
+          code: x.code,
+          creator: x.creator,
+          value: rankSpread,
+          rank_spread: rankSpread,
+          distinct_ranks: ranks.length,
+          minutes: Number(x.minutes.toFixed(1)),
+          image_url: x.image_url || null,
+          label: `${ranks.length} ranks`,
+        };
+      })
+      .filter((x) => x.distinct_ranks >= 2)
+      .sort((a, b) => b.rank_spread - a.rank_spread || b.minutes - a.minutes)
+      .slice(0, 10);
+
+    const collectionCodesInExposure = new Set(
+      topByPanel
+        .filter((r: any) => String(r?.linkCodeType || "") === "collection")
+        .map((r: any) => String(r?.linkCode || "")),
+    );
+    const resolvedCodes = new Set(resolvedCollections.map((r: any) => String(r?.linkCode || "")));
+    const unresolvedCount = Array.from(collectionCodesInExposure).filter((c) => c && !resolvedCodes.has(c)).length;
+    const totalChildren = resolvedCollections.reduce((s: number, r: any) => s + Number(r?.childrenCount || 0), 0);
+    const topCollections = resolvedCollections
+      .map((r: any) => ({
+        name: r?.title || r?.linkCode,
+        code: r?.linkCode,
+        creator: r?.creatorCode || null,
+        value: Number(r?.childrenCount || 0),
+        children_count: Number(r?.childrenCount || 0),
+        image_url: r?.imageUrl || null,
+        label: `${r?.panelDisplayName || r?.panelName || "panel"}`,
+      }))
+      .sort((a: any, b: any) => b.value - a.value)
+      .slice(0, 10);
+
+    return {
+      panelMixItems,
+      panelMixStats: {
+        total_panels: panelAgg.size,
+        total_minutes: Number(panelMixItems.reduce((s, i) => s + Number(i.value || 0), 0).toFixed(1)),
+      },
+      rankDynamicsItems,
+      rankDynamicsStats: {
+        segments: panelRankTimeline.length,
+        volatile_items: rankDynamicsItems.length,
+      },
+      collectionEdgesItems: topCollections,
+      collectionEdgesStats: {
+        collections_in_exposure: collectionCodesInExposure.size,
+        collections_resolved: resolvedCollections.length,
+        unresolved_collections: unresolvedCount,
+        total_children_resolved: totalChildren,
+      },
+    };
+  }, [exposure]);
 
   if (loading) return <ReportPageSkeleton />;
   if (!report) {
@@ -497,6 +639,19 @@ export default function ReportView() {
         <RankingTable title={t("rankings.topAvgMinutes")} icon={Clock} showImage onImageClick={openLightbox} items={nonEpicItems(rankings.topAvgMinutesPerPlayer || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(1) + " min"} />
         <RankingTable title={t("rankings.topMinutesPlayed")} icon={Clock} showImage onImageClick={openLightbox} items={nonEpicItems(rankings.topMinutesPlayed || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} />
       </div>
+      {qualityComposite.length > 0 && (
+        <div className="grid md:grid-cols-1 gap-4 mb-4">
+          <RankingTable
+            title="Section 8.1 - Composite Quality (Minutes + Advocacy + D7)"
+            icon={Flame}
+            showImage
+            showBadges
+            onImageClick={openLightbox}
+            items={qualityComposite.map((i: any) => ({ ...i, imageUrl: i.image_url }))}
+            valueFormatter={(v) => `${Number(v).toFixed(1)} Q`}
+          />
+        </div>
+      )}
       <AiNarrative text={getNarrative(8)} />
 
       <div className="border-t border-border my-8" />
@@ -540,6 +695,27 @@ export default function ReportView() {
         <RankingTable title={t("rankings.favsPer100")} icon={Star} showImage onImageClick={openLightbox} items={nonEpicItems(rankings.topFavsPer100 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2) + "%"} />
         <RankingTable title={t("rankings.recsPer100")} icon={ThumbsUp} showImage onImageClick={openLightbox} items={nonEpicItems(rankings.topRecPer100 || []).map((i: any) => ({ ...i, imageUrl: i.image_url }))} valueFormatter={(v) => Number(v).toFixed(2) + "%"} />
       </div>
+      {(advocacyGapLeaders.length > 0 || advocacyOverIndexedRecs.length > 0) && (
+        <div className="grid md:grid-cols-2 gap-4 mb-4">
+          <RankingTable
+            title="Section 11.1 - Favorite-heavy (Gap Fav - Rec)"
+            icon={Star}
+            showImage
+            onImageClick={openLightbox}
+            items={advocacyGapLeaders.map((i: any) => ({ ...i, imageUrl: i.image_url }))}
+            valueFormatter={(v) => Number(v).toFixed(2)}
+          />
+          <RankingTable
+            title="Section 11.1 - Recommendation-heavy (Gap Fav - Rec)"
+            icon={ThumbsUp}
+            showImage
+            onImageClick={openLightbox}
+            items={advocacyOverIndexedRecs.map((i: any) => ({ ...i, imageUrl: i.image_url }))}
+            valueFormatter={(v) => Number(v).toFixed(2)}
+            barColor="bg-destructive"
+          />
+        </div>
+      )}
       <AiNarrative text={getNarrative(11)} />
 
       <div className="border-t border-border my-8" />
@@ -668,6 +844,34 @@ export default function ReportView() {
         <SectionHeader icon={EyeOff} number={19} title={t("reportSections.s19Title")} description={t("reportSections.s19Desc")} />
         {exposure?.profiles?.length > 0 ? (
           <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <KpiCard icon={Layers} label="19.1 Panels" value={fmt(exposureDeepDive.panelMixStats.total_panels)} />
+              <KpiCard icon={Clock} label="19.1 Min (sample)" value={fmt(exposureDeepDive.panelMixStats.total_minutes)} />
+              <KpiCard icon={TrendingUp} label="19.2 Volatile items" value={fmt(exposureDeepDive.rankDynamicsStats.volatile_items)} />
+              <KpiCard icon={Grid3X3} label="19.3 Collections resolved" value={fmt(exposureDeepDive.collectionEdgesStats.collections_resolved)} />
+            </div>
+            <div className="grid md:grid-cols-3 gap-4 mb-4">
+              <RankingTable
+                title="19.1 Panel Mix (Discovery)"
+                icon={Layers}
+                items={exposureDeepDive.panelMixItems}
+                valueFormatter={(v) => `${fmt(Number(v))} min`}
+              />
+              <RankingTable
+                title="19.2 Rank Dynamics (Spread)"
+                icon={TrendingUp}
+                showImage
+                onImageClick={openLightbox}
+                items={exposureDeepDive.rankDynamicsItems.map((i: any) => ({ ...i, imageUrl: i.image_url }))}
+              />
+              <RankingTable
+                title="19.3 Collection Edges (Children)"
+                icon={Grid3X3}
+                showImage
+                onImageClick={openLightbox}
+                items={exposureDeepDive.collectionEdgesItems.map((i: any) => ({ ...i, imageUrl: i.image_url }))}
+              />
+            </div>
             {!showExposureExplorer && (
               <Card className="border-border/50 mb-4">
                 <CardContent className="py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1006,6 +1210,35 @@ export default function ReportView() {
               </Card>
             ))}
           </div>
+          {(exposurePanelTop.length > 0 || exposureCreatorTop.length > 0 || exposureCreatorBottom.length > 0) && (
+            <>
+              <div className="grid md:grid-cols-2 gap-4 mb-4">
+                <RankingTable
+                  title="26.1 Panel Conversion (Plays / Min)"
+                  icon={Layers}
+                  items={exposurePanelTop}
+                  valueFormatter={(v) => Number(v).toFixed(2)}
+                />
+                <RankingTable
+                  title="26.2 Creator Conversion (Top)"
+                  icon={Users}
+                  items={exposureCreatorTop}
+                  valueFormatter={(v) => Number(v).toFixed(2)}
+                />
+              </div>
+              {exposureCreatorBottom.length > 0 && (
+                <div className="grid md:grid-cols-1 gap-4 mb-4">
+                  <RankingTable
+                    title="26.2 Creator Conversion (Bottom)"
+                    icon={AlertTriangle}
+                    items={exposureCreatorBottom}
+                    valueFormatter={(v) => Number(v).toFixed(2)}
+                    barColor="bg-destructive"
+                  />
+                </div>
+              )}
+            </>
+          )}
           <AiNarrative text={getNarrative(26)} />
         </>
       )}
@@ -1061,6 +1294,78 @@ export default function ReportView() {
             </CardContent>
           </Card>
           <AiNarrative text={getNarrative(27)} />
+        </>
+      )}
+
+      {(rankings.linkGraphHealth || linkGraphTopParents.length > 0) && (
+        <>
+          <div className="border-t border-border my-8" />
+          <SectionHeader icon={Layers} number={29} title={t("reportSections.s29Title")} description={t("reportSections.s29Desc")} />
+          {rankings.linkGraphHealth && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
+              <KpiCard icon={Layers} label="Total edges" value={fmt(rankings.linkGraphHealth.total_edges)} />
+              <KpiCard icon={TrendingUp} label="Seen in week" value={fmt(rankings.linkGraphHealth.edges_seen_in_week)} />
+              <KpiCard icon={Grid3X3} label="Active parents" value={fmt(rankings.linkGraphHealth.active_parents_in_week)} />
+              <KpiCard icon={Users} label="Active children" value={fmt(rankings.linkGraphHealth.active_children_in_week)} />
+              <KpiCard icon={Target} label="Freshness %" value={`${Number(rankings.linkGraphHealth.freshness_pct || 0).toFixed(1)}%`} />
+            </div>
+          )}
+          {linkGraphTopParents.length > 0 ? (
+            <div className="grid md:grid-cols-1 gap-4 mb-4">
+              <RankingTable
+                title="Top Parent Collections by Edge Volume"
+                icon={Grid3X3}
+                showImage
+                onImageClick={openLightbox}
+                items={linkGraphTopParents.map((i: any) => ({ ...i, imageUrl: i.image_url }))}
+              />
+            </div>
+          ) : (
+            <Card className="border-border/50 mb-4">
+              <CardContent className="py-6 text-sm text-muted-foreground">{t("common.noData")}</CardContent>
+            </Card>
+          )}
+          <AiNarrative text={getNarrative(29)} />
+        </>
+      )}
+
+      {(emergingNow.length > 0 || rankings.emergingNowStats) && (
+        <>
+          <div className="border-t border-border my-8" />
+          <SectionHeader icon={Rocket} number={30} title={t("reportSections.s30Title")} description={t("reportSections.s30Desc")} />
+          {rankings.emergingNowStats && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+              <KpiCard icon={Sparkles} label="Emerging islands" value={fmt(rankings.emergingNowStats.total_emerging_islands)} />
+              <KpiCard icon={TrendingUp} label="Avg score" value={fmt(rankings.emergingNowStats.avg_score)} />
+              <KpiCard icon={Target} label="Top score" value={fmt(rankings.emergingNowStats.top_score)} />
+            </div>
+          )}
+          {emergingNow.length > 0 ? (
+            <div className="grid md:grid-cols-1 gap-4 mb-4">
+              <RankingTable
+                title="Emerging Now (Discovery, 24h)"
+                icon={Rocket}
+                showImage
+                showBadges
+                onImageClick={openLightbox}
+                items={emergingNow.map((i: any) => ({
+                  ...i,
+                  name: i.title || i.code,
+                  code: i.code,
+                  creator: i.creator_code,
+                  value: i.score,
+                  label: `${fmt(i.minutes_24h)} min / ${i.panels_24h} panels`,
+                  imageUrl: i.image_url,
+                }))}
+                valueFormatter={(v) => Number(v).toFixed(2)}
+              />
+            </div>
+          ) : (
+            <Card className="border-border/50 mb-4">
+              <CardContent className="py-6 text-sm text-muted-foreground">{t("common.noData")}</CardContent>
+            </Card>
+          )}
+          <AiNarrative text={getNarrative(30)} />
         </>
       )}
     </div>

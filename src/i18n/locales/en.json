@@ -178,7 +178,11 @@
     "s26Title": "Exposure Efficiency",
     "s26Desc": "Which islands convert Discovery panel exposure into actual plays best",
     "s27Title": "Discovery Pollution",
-    "s27Desc": "Creators flooding the ecosystem with duplicate or spam islands this week"
+    "s27Desc": "Creators flooding the ecosystem with duplicate or spam islands this week",
+    "s29Title": "Link Graph Health",
+    "s29Desc": "Edge coverage and collection-link graph quality signals",
+    "s30Title": "Emerging Now Radar",
+    "s30Desc": "Early discovery momentum in the last 24h"
   },
   "kpis": {
     "activeIslands": "Active Islands",

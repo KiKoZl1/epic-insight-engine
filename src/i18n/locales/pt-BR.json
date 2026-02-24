@@ -178,7 +178,11 @@
     "s26Title": "Eficiência de Exposição",
     "s26Desc": "Quais ilhas convertem melhor a exposição nos painéis do Discovery em plays reais",
     "s27Title": "Poluição do Discovery",
-    "s27Desc": "Criadores inundando o ecossistema com ilhas duplicadas ou spam esta semana"
+    "s27Desc": "Criadores inundando o ecossistema com ilhas duplicadas ou spam esta semana",
+    "s29Title": "Saúde do Grafo de Links",
+    "s29Desc": "Qualidade e cobertura do grafo de edges entre coleções e ilhas",
+    "s30Title": "Radar Emerging Now",
+    "s30Desc": "Ilhas em aceleração no Discovery nas últimas 24h"
   },
   "kpis": {
     "activeIslands": "Ilhas Ativas",
