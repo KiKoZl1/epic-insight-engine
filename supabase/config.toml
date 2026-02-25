@@ -33,3 +33,9 @@ verify_jwt = false
 [functions.discover-rails-resolver]
 verify_jwt = false
 
+[functions.discover-island-lookup-ai]
+verify_jwt = false
+
+[functions.discover-panel-timeline]
+verify_jwt = false
+

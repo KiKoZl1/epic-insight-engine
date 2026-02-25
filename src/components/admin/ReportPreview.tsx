@@ -67,8 +67,11 @@ const SECTION_TITLES: Record<number, string> = {
   23: "Rookie Creators",
   24: "Player Capacity Analysis",
   25: "UEFN vs Fortnite Creative",
-  26: "Category & Genre Movement",
-  27: "Creator Movement & Ranking Changes",
+  26: "Exposure Efficiency",
+  27: "Discovery Pollution",
+  28: "Epic Spotlight",
+  29: "Link Graph Health",
+  30: "Emerging Now Radar",
 };
 
 function toTableItems(rows: any[] | undefined | null): any[] {
@@ -106,6 +109,7 @@ function sectionIcon(section: number) {
 
 function sectionData(section: number, rankings: any) {
   const exposure = rankings?.discoveryExposure || null;
+  const epicSpotlight = rankings?.epicSpotlight || null;
   const topNew = rankings?.topNewIslandsByPlaysPublished || rankings?.topNewIslandsByPlays || [];
 
   switch (section) {
@@ -257,15 +261,72 @@ function sectionData(section: number, rankings: any) {
     case 26:
       return (
         <div className="grid md:grid-cols-2 gap-4 mb-4">
-          <RankingTable title="Category Risers" icon={TrendingUp} items={toTableItems(rankings?.categoryRisers).slice(0, 12)} />
-          <RankingTable title="Category Decliners" icon={TrendingDown} items={toTableItems(rankings?.categoryDecliners).slice(0, 12)} />
+          <RankingTable
+            title="Top Exposure Efficiency"
+            icon={TrendingUp}
+            items={toTableItems((rankings?.topExposureEfficiency || []).map((x: any) => ({
+              ...x,
+              name: x.title || x.island_code,
+              code: x.island_code,
+              value: x.plays_per_min_exposed,
+            }))).slice(0, 12)}
+          />
+          <RankingTable
+            title="Worst Exposure Efficiency"
+            icon={TrendingDown}
+            items={toTableItems((rankings?.worstExposureEfficiency || []).map((x: any) => ({
+              ...x,
+              name: x.title || x.island_code,
+              code: x.island_code,
+              value: x.plays_per_min_exposed,
+            }))).slice(0, 12)}
+          />
+          <RankingTable title="26.1 Panel Conversion" icon={Layers} items={toTableItems(rankings?.exposureEfficiencyPanelTop).slice(0, 12)} />
+          <RankingTable title="26.2 Creator Conversion" icon={Users} items={toTableItems(rankings?.exposureEfficiencyCreatorTop).slice(0, 12)} />
         </div>
       );
     case 27:
       return (
+        <div className="grid md:grid-cols-1 gap-4 mb-4">
+          <RankingTable
+            title="Discovery Pollution (7d)"
+            icon={TrendingDown}
+            items={toTableItems((rankings?.discoveryPollution || []).map((x: any) => ({
+              ...x,
+              name: `@${x.creator_code || "unknown"}`,
+              value: x.spam_score,
+            }))).slice(0, 30)}
+          />
+        </div>
+      );
+    case 28:
+      return (
         <div className="grid md:grid-cols-2 gap-4 mb-4">
-          <RankingTable title="Creator Risers" icon={TrendingUp} items={toTableItems(rankings?.creatorRisers).slice(0, 12)} />
-          <RankingTable title="Creator Decliners" icon={TrendingDown} items={toTableItems(rankings?.creatorDecliners).slice(0, 12)} />
+          <RankingTable title="Epic Top Peak CCU" icon={BarChart3} items={toTableItems(epicSpotlight?.topPeakCCU).slice(0, 12)} />
+          <RankingTable title="Epic Top by Plays" icon={Play} items={toTableItems(epicSpotlight?.topByPlays).slice(0, 12)} />
+          <RankingTable title="Epic Top by Unique Players" icon={Users} items={toTableItems(epicSpotlight?.topByUniquePlayers).slice(0, 12)} />
+          <RankingTable title="Epic Movers (WoW)" icon={TrendingUp} items={toTableItems(epicSpotlight?.risers).slice(0, 12)} />
+        </div>
+      );
+    case 29:
+      return (
+        <div className="grid md:grid-cols-1 gap-4 mb-4">
+          <RankingTable title="Top Parent Collections by Edge Volume" icon={Layers} items={toTableItems(rankings?.linkGraphHealth?.top_parents).slice(0, 12)} />
+        </div>
+      );
+    case 30:
+      return (
+        <div className="grid md:grid-cols-1 gap-4 mb-4">
+          <RankingTable
+            title="Emerging Now (Discovery, 24h)"
+            icon={Sparkles}
+            items={toTableItems((rankings?.emergingNow || []).map((x: any) => ({
+              ...x,
+              name: x.title || x.code,
+              code: x.code,
+              value: x.score,
+            }))).slice(0, 12)}
+          />
         </div>
       );
     default:
@@ -344,7 +405,7 @@ export function ReportPreview({
       </div>
       <AiNarrative text={getNarrative(1)} />
 
-      {Array.from({ length: 26 }, (_, i) => i + 2).map((sectionNum) => {
+      {Array.from({ length: 29 }, (_, i) => i + 2).map((sectionNum) => {
         const narrative = getNarrative(sectionNum);
         const dataNode = sectionData(sectionNum, rankings);
         if (!narrative && !dataNode) return null;

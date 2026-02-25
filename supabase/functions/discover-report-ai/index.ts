@@ -177,12 +177,22 @@ serve(async (req) => {
       panelLoyalty: r.panelLoyalty?.slice?.(0, 10) || [],
       versionEnrichment: r.versionEnrichment || null,
       sacCoverage: r.sacCoverage || null,
-      // WoW comparative data
-      categoryRisers: r.categoryRisers?.slice?.(0, 10) || [],
-      categoryDecliners: r.categoryDecliners?.slice?.(0, 10) || [],
-      creatorRisers: r.creatorRisers?.slice?.(0, 10) || [],
-      creatorDecliners: r.creatorDecliners?.slice?.(0, 10) || [],
-      creatorRankClimbers: r.creatorRankClimbers?.slice?.(0, 10) || [],
+      // Exposure and pollution
+      topExposureEfficiency: r.topExposureEfficiency?.slice?.(0, 15) || [],
+      worstExposureEfficiency: r.worstExposureEfficiency?.slice?.(0, 15) || [],
+      exposureEfficiencyStats: r.exposureEfficiencyStats || null,
+      exposureEfficiencyPanelTop: r.exposureEfficiencyPanelTop?.slice?.(0, 10) || [],
+      exposureEfficiencyCreatorTop: r.exposureEfficiencyCreatorTop?.slice?.(0, 10) || [],
+      exposureEfficiencyCreatorBottom: r.exposureEfficiencyCreatorBottom?.slice?.(0, 10) || [],
+      discoveryPollution: r.discoveryPollution?.slice?.(0, 30) || [],
+      // Additional quality/advocacy and discovery signals
+      mapQualityCompositeTop: r.mapQualityCompositeTop?.slice?.(0, 10) || [],
+      advocacyGapLeaders: r.advocacyGapLeaders?.slice?.(0, 10) || [],
+      advocacyOverIndexedRecs: r.advocacyOverIndexedRecs?.slice?.(0, 10) || [],
+      advocacySignalsStats: r.advocacySignalsStats || null,
+      linkGraphHealth: r.linkGraphHealth || null,
+      emergingNow: r.emergingNow?.slice?.(0, 20) || [],
+      emergingNowStats: r.emergingNowStats || null,
       epicSpotlight: r.epicSpotlight || null,
     }, null, 0);
     const baselineAvailable = Boolean((kpis as any)?.baselineAvailable) || kpis.wowTotalPlays != null;
@@ -259,7 +269,7 @@ ${evidenceSummary || "Not available yet."}
 ${exposureSummary ? JSON.stringify(exposureSummary, null, 0) : "Not available for this week (collector not running or insufficient data yet)."}
 
 ## Instructions
-Write insightful narratives for each of the 27 sections below. Each narrative MUST be 4-6 sentences long, data-driven, and include:
+Write insightful narratives for each of the 30 sections below. Each narrative MUST be 4-6 sentences long, data-driven, and include:
 - Specific numbers and percentages from the data
 - Comparisons and patterns (e.g., "The top 3 islands account for X% of total plays")
 - Actionable insights for creators (e.g., "Creators should consider X genre given Y trend")
@@ -269,7 +279,7 @@ Write insightful narratives for each of the 27 sections below. Each narrative MU
 - HARD RULE: whenever you write "published this week" (or equivalent), you MUST use exactly ${newMapsPublished}.
 - HARD RULE: never use ${newMapsFirstSeen} for published wording; if mentioned, label it only as "first seen in tracker".
 - Outside the Global Peak CCU section and Epic Spotlight data, treat rankings as UGC-only (Epic maps are excluded by design). Do not use Epic examples in other sections.
-- If baseline is not available (Baseline available = no), for sections that depend on WoW data (sections 16, 17, 18, 26, 27), write about what WILL be tracked once baseline exists. Discuss what the current snapshot reveals about the ecosystem's starting point. DO NOT write "none" or say there's no data — instead analyze the current week's absolute performance as the foundation for future comparisons.
+- If baseline is not available (Baseline available = no), for sections that depend on WoW data (sections 16, 17, 18), write about what WILL be tracked once baseline exists. Discuss what the current snapshot reveals about the ecosystem's starting point. DO NOT write "none" or say there's no data — instead analyze the current week's absolute performance as the foundation for future comparisons.
 - Always explain what values mean (e.g., "5.37 plays per unique player", "71.26 favorites per 100 players")
 - For stickiness scores, explain the formula: plays × avgMinutes × retention
 - For Efficiency & Conversion (section 12), ALWAYS use the topFavsPerPlay, topRecsPerPlay, topPlaysPerPlayer data — these are available even without baseline.
@@ -309,9 +319,11 @@ Sections:
 23. Rookie Creators - new creators (first_seen this week) with standout performance. Reference rookieCreators data. Analyze how rookies compare to established creators. Highlight total new creators and their best islands.
 24. Player Capacity Analysis - performance breakdown by max_players tiers (Solo, Duo, Squad, Party, Large, Massive). Reference capacityAnalysis data. Which player count drives the best retention/engagement? Actionable insights for creators choosing party sizes.
 25. UEFN vs Fortnite Creative - tool split comparison. Reference toolSplit data. Compare avg plays, retention, CCU, minutes between UEFN and FNC islands. Which tool produces better-performing islands? What does this mean for creators choosing their development tool?
-26. Category & Genre Movement - WoW category comparison. Reference categoryRisers and categoryDecliners data. Which categories/genres are growing or shrinking? Include plays delta, % change, island count changes. Identify emerging genres and declining ones. What does this mean for creators choosing what to build?
-27. Creator Movement & Ranking Changes - WoW creator comparison. Reference creatorRisers, creatorDecliners, and creatorRankClimbers data. Which creators gained/lost the most plays? Who climbed the most ranking positions? Include rank changes, play deltas, and % changes. Identify breakout creators and consistent performers.
-28. Epic Spotlight - analyze Epic-authored maps separately (top peak CCU, top plays, top unique players, and WoW movers if available). Compare Epic momentum vs UGC without mixing them into UGC conclusions.`;
+26. Exposure Efficiency - best and worst conversion from Discovery exposure to plays (plays per minute exposed). Use topExposureEfficiency/worstExposureEfficiency plus section 26.1 (panel conversion) and 26.2 (creator conversion top/bottom) for actionable distribution strategy.
+27. Discovery Pollution - creators flooding Discovery with duplicate/spam islands this week. Use discoveryPollution ranking (clusters, duplicate islands, spam score) to explain ecosystem impact and moderation implications.
+28. Epic Spotlight - analyze Epic-authored maps separately (top peak CCU, top plays, top unique players, and WoW movers if available). Compare Epic momentum vs UGC without mixing them into UGC conclusions.
+29. Link Graph Health - analyze edges between collections and children using linkGraphHealth. Explain total edges, freshness, active parents/children, and top parent collections by edge volume.
+30. Emerging Now Radar - analyze emergingNow and emergingNowStats to identify fast-rising islands in the last 24h (score, minutes, panels, best rank) and what creators can learn from those patterns.`;
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
@@ -320,7 +332,7 @@ Sections:
 
     // ── Step 1: Generate English narratives ──
     const sectionProps: Record<string, any> = {};
-    for (let i = 1; i <= 28; i++) {
+    for (let i = 1; i <= 30; i++) {
       sectionProps[`section${i}`] = {
         type: "object",
         properties: {
@@ -578,3 +590,4 @@ function buildExposureSummary(exposure: any, weeklyRow: any): any {
     topPanels, topItems, dailySample: daily,
   };
 }
+

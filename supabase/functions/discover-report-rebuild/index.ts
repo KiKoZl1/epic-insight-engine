@@ -260,6 +260,399 @@ async function buildPartnerSignals(supabase: any, reportId: string): Promise<any
     .slice(0, 12);
 }
 
+function toFiniteNumber(v: unknown, fallback = 0): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function deriveQualityAndAdvocacySignals(rankings: any): {
+  mapQualityCompositeTop: any[];
+  advocacyGapLeaders: any[];
+  advocacyOverIndexedRecs: any[];
+  advocacySignalsStats: Record<string, number>;
+} {
+  const byCode = new Map<string, any>();
+  const upsert = (rows: any[], key: "minutes" | "favsPer100" | "recsPer100" | "d7") => {
+    for (const row of rows || []) {
+      const code = String(row?.code || row?.island_code || "").trim();
+      if (!code) continue;
+      const cur = byCode.get(code) || {
+        code,
+        title: row?.title || row?.name || code,
+        creator_code: row?.creator || row?.creator_code || null,
+        image_url: row?.image_url || row?.imageUrl || null,
+        minutes: 0,
+        favsPer100: 0,
+        recsPer100: 0,
+        d7: 0,
+      };
+      if (!cur.title && (row?.title || row?.name)) cur.title = row?.title || row?.name;
+      if (!cur.creator_code && (row?.creator || row?.creator_code)) cur.creator_code = row?.creator || row?.creator_code;
+      if (!cur.image_url && (row?.image_url || row?.imageUrl)) cur.image_url = row?.image_url || row?.imageUrl;
+      cur[key] = toFiniteNumber(row?.value, cur[key]);
+      byCode.set(code, cur);
+    }
+  };
+
+  upsert(rankings?.topAvgMinutesPerPlayer || [], "minutes");
+  upsert(rankings?.topFavsPer100 || [], "favsPer100");
+  upsert(rankings?.topRecPer100 || [], "recsPer100");
+  upsert(rankings?.topRetentionD7 || [], "d7");
+
+  const rows = Array.from(byCode.values()).map((r: any) => {
+    const d7Pct = r.d7 > 1 ? r.d7 : r.d7 * 100;
+    const minutesNorm = Math.min(1, Math.max(0, r.minutes / 30));
+    const favNorm = Math.min(1, Math.max(0, r.favsPer100 / 80));
+    const recNorm = Math.min(1, Math.max(0, r.recsPer100 / 20));
+    const d7Norm = Math.min(1, Math.max(0, d7Pct / 25));
+    const qualityScore = (minutesNorm * 0.45 + favNorm * 0.25 + recNorm * 0.2 + d7Norm * 0.1) * 100;
+    const gap = r.favsPer100 - r.recsPer100;
+    return {
+      ...r,
+      d7Pct,
+      qualityScore: Number(qualityScore.toFixed(2)),
+      advocacyGap: Number(gap.toFixed(2)),
+      recToFavRatio: r.favsPer100 > 0 ? Number((r.recsPer100 / r.favsPer100).toFixed(3)) : 0,
+    };
+  });
+
+  const qualityTop = rows
+    .filter((r: any) => r.minutes > 0)
+    .sort((a: any, b: any) => b.qualityScore - a.qualityScore)
+    .slice(0, 15)
+    .map((r: any) => ({
+      code: r.code,
+      name: r.title || r.code,
+      title: r.title || r.code,
+      creator: r.creator_code,
+      creator_code: r.creator_code,
+      value: r.qualityScore,
+      label: `Q ${r.qualityScore.toFixed(1)}`,
+      minutes_per_player: Number(r.minutes.toFixed(2)),
+      favs_per_100: Number(r.favsPer100.toFixed(2)),
+      recs_per_100: Number(r.recsPer100.toFixed(2)),
+      d7_pct: Number(r.d7Pct.toFixed(2)),
+      image_url: r.image_url || null,
+    }));
+
+  const advocacyGapLeaders = rows
+    .filter((r: any) => r.favsPer100 > 0 || r.recsPer100 > 0)
+    .sort((a: any, b: any) => b.advocacyGap - a.advocacyGap)
+    .slice(0, 12)
+    .map((r: any) => ({
+      code: r.code,
+      name: r.title || r.code,
+      title: r.title || r.code,
+      creator: r.creator_code,
+      creator_code: r.creator_code,
+      value: r.advocacyGap,
+      favs_per_100: Number(r.favsPer100.toFixed(2)),
+      recs_per_100: Number(r.recsPer100.toFixed(2)),
+      rec_to_fav_ratio: r.recToFavRatio,
+      image_url: r.image_url || null,
+    }));
+
+  const advocacyOverIndexedRecs = rows
+    .filter((r: any) => r.favsPer100 > 0 || r.recsPer100 > 0)
+    .sort((a: any, b: any) => a.advocacyGap - b.advocacyGap)
+    .slice(0, 12)
+    .map((r: any) => ({
+      code: r.code,
+      name: r.title || r.code,
+      title: r.title || r.code,
+      creator: r.creator_code,
+      creator_code: r.creator_code,
+      value: r.advocacyGap,
+      favs_per_100: Number(r.favsPer100.toFixed(2)),
+      recs_per_100: Number(r.recsPer100.toFixed(2)),
+      rec_to_fav_ratio: r.recToFavRatio,
+      image_url: r.image_url || null,
+    }));
+
+  const avgFavs = rows.length > 0 ? rows.reduce((s: number, r: any) => s + r.favsPer100, 0) / rows.length : 0;
+  const avgRecs = rows.length > 0 ? rows.reduce((s: number, r: any) => s + r.recsPer100, 0) / rows.length : 0;
+  const avgGap = rows.length > 0 ? rows.reduce((s: number, r: any) => s + r.advocacyGap, 0) / rows.length : 0;
+
+  return {
+    mapQualityCompositeTop: qualityTop,
+    advocacyGapLeaders,
+    advocacyOverIndexedRecs,
+    advocacySignalsStats: {
+      avg_favs_per_100: Number(avgFavs.toFixed(2)),
+      avg_recs_per_100: Number(avgRecs.toFixed(2)),
+      avg_gap_favs_minus_recs: Number(avgGap.toFixed(2)),
+      candidates: rows.length,
+    },
+  };
+}
+
+function deriveExposureEfficiencyBreakdowns(rankings: any): {
+  exposureEfficiencyPanelTop: any[];
+  exposureEfficiencyCreatorTop: any[];
+  exposureEfficiencyCreatorBottom: any[];
+} {
+  const raw = [...(rankings?.topExposureEfficiency || []), ...(rankings?.worstExposureEfficiency || [])];
+  const dedup = new Map<string, any>();
+  for (const row of raw) {
+    const code = String(row?.island_code || row?.code || "").trim();
+    if (!code) continue;
+    if (!dedup.has(code)) dedup.set(code, row);
+  }
+  const rows = Array.from(dedup.values());
+
+  const panelAgg = new Map<string, any>();
+  for (const row of rows) {
+    const totalMinutes = toFiniteNumber(row?.total_minutes_exposed, 0);
+    const plays = toFiniteNumber(row?.week_plays, 0);
+    const unique = toFiniteNumber(row?.week_unique, 0);
+    const breakdown = Array.isArray(row?.panel_breakdown) ? row.panel_breakdown : [];
+    if (totalMinutes <= 0 || breakdown.length === 0) continue;
+
+    for (const b of breakdown) {
+      const panelName = String(b?.panel || b?.panel_name || "").trim() || "Unknown Panel";
+      const minutes = toFiniteNumber(b?.minutes, 0);
+      if (minutes <= 0) continue;
+      const weight = Math.max(0, Math.min(1, minutes / totalMinutes));
+      const cur = panelAgg.get(panelName) || {
+        panel: panelName,
+        total_minutes_exposed: 0,
+        est_plays: 0,
+        est_players: 0,
+        appearances: 0,
+        islands: new Set<string>(),
+      };
+      cur.total_minutes_exposed += minutes;
+      cur.est_plays += plays * weight;
+      cur.est_players += unique * weight;
+      cur.appearances += toFiniteNumber(b?.appearances, 0);
+      cur.islands.add(String(row?.island_code || row?.code || ""));
+      panelAgg.set(panelName, cur);
+    }
+  }
+
+  const exposureEfficiencyPanelTop = Array.from(panelAgg.values())
+    .map((p: any) => ({
+      name: p.panel,
+      panel: p.panel,
+      value: p.total_minutes_exposed > 0 ? Number((p.est_plays / p.total_minutes_exposed).toFixed(2)) : 0,
+      plays_per_min_exposed: p.total_minutes_exposed > 0 ? Number((p.est_plays / p.total_minutes_exposed).toFixed(2)) : 0,
+      est_plays: Number(p.est_plays.toFixed(1)),
+      est_players: Number(p.est_players.toFixed(1)),
+      total_minutes_exposed: Number(p.total_minutes_exposed.toFixed(1)),
+      islands: p.islands.size,
+      appearances: p.appearances,
+      label: `${p.islands.size} islands`,
+    }))
+    .filter((p: any) => p.total_minutes_exposed >= 30)
+    .sort((a: any, b: any) => b.plays_per_min_exposed - a.plays_per_min_exposed)
+    .slice(0, 15);
+
+  const creatorAgg = new Map<string, any>();
+  for (const row of rows) {
+    const creator = String(row?.creator_code || "unknown").trim() || "unknown";
+    const code = String(row?.island_code || row?.code || "").trim();
+    const cur = creatorAgg.get(creator) || {
+      creator_code: creator,
+      total_minutes_exposed: 0,
+      total_plays: 0,
+      total_players: 0,
+      islands: new Set<string>(),
+    };
+    cur.total_minutes_exposed += toFiniteNumber(row?.total_minutes_exposed, 0);
+    cur.total_plays += toFiniteNumber(row?.week_plays, 0);
+    cur.total_players += toFiniteNumber(row?.week_unique, 0);
+    if (code) cur.islands.add(code);
+    creatorAgg.set(creator, cur);
+  }
+
+  const creatorRows = Array.from(creatorAgg.values())
+    .map((c: any) => ({
+      name: c.creator_code,
+      creator_code: c.creator_code,
+      value: c.total_minutes_exposed > 0 ? Number((c.total_plays / c.total_minutes_exposed).toFixed(2)) : 0,
+      plays_per_min_exposed: c.total_minutes_exposed > 0 ? Number((c.total_plays / c.total_minutes_exposed).toFixed(2)) : 0,
+      total_plays: Number(c.total_plays.toFixed(1)),
+      total_players: Number(c.total_players.toFixed(1)),
+      total_minutes_exposed: Number(c.total_minutes_exposed.toFixed(1)),
+      islands: c.islands.size,
+      label: `${c.islands.size} islands`,
+    }))
+    .filter((c: any) => c.total_minutes_exposed >= 30);
+
+  return {
+    exposureEfficiencyPanelTop,
+    exposureEfficiencyCreatorTop: [...creatorRows]
+      .sort((a: any, b: any) => b.plays_per_min_exposed - a.plays_per_min_exposed)
+      .slice(0, 15),
+    exposureEfficiencyCreatorBottom: [...creatorRows]
+      .sort((a: any, b: any) => a.plays_per_min_exposed - b.plays_per_min_exposed)
+      .slice(0, 15),
+  };
+}
+
+async function buildEmergingNowPayload(supabase: any, limit = 40): Promise<{ emergingNow: any[]; emergingNowStats: any }> {
+  const { data, error } = await supabase
+    .from("discovery_public_emerging_now")
+    .select("as_of,region,surface_name,link_code,link_code_type,title,creator_code,image_url,score,minutes_24h,minutes_6h,panels_24h,premium_panels_24h,best_rank_24h,reentries_24h,first_seen_at")
+    .eq("surface_name", "CreativeDiscoverySurface_Frontend")
+    .eq("link_code_type", "island")
+    .order("score", { ascending: false })
+    .limit(limit * 6);
+  if (error) throw new Error(error.message);
+
+  const grouped = new Map<string, any>();
+  for (const r of data || []) {
+    const code = String((r as any).link_code || "").trim();
+    if (!code) continue;
+    const cur = grouped.get(code) || {
+      code,
+      name: (r as any).title || code,
+      title: (r as any).title || code,
+      creator: (r as any).creator_code || null,
+      creator_code: (r as any).creator_code || null,
+      image_url: (r as any).image_url || null,
+      score: 0,
+      minutes_24h: 0,
+      minutes_6h: 0,
+      panels_24h: 0,
+      premium_panels_24h: 0,
+      best_rank_24h: null as number | null,
+      reentries_24h: 0,
+      first_seen_at: (r as any).first_seen_at || null,
+      regions: new Set<string>(),
+      as_of: (r as any).as_of || null,
+    };
+    cur.score += toFiniteNumber((r as any).score, 0);
+    cur.minutes_24h += toFiniteNumber((r as any).minutes_24h, 0);
+    cur.minutes_6h += toFiniteNumber((r as any).minutes_6h, 0);
+    cur.panels_24h = Math.max(cur.panels_24h, toFiniteNumber((r as any).panels_24h, 0));
+    cur.premium_panels_24h = Math.max(cur.premium_panels_24h, toFiniteNumber((r as any).premium_panels_24h, 0));
+    cur.reentries_24h = Math.max(cur.reentries_24h, toFiniteNumber((r as any).reentries_24h, 0));
+    const rank = toFiniteNumber((r as any).best_rank_24h, 0);
+    if (rank > 0) cur.best_rank_24h = cur.best_rank_24h == null ? rank : Math.min(cur.best_rank_24h, rank);
+    if (!cur.title && (r as any).title) cur.title = (r as any).title;
+    if (!cur.creator_code && (r as any).creator_code) cur.creator_code = (r as any).creator_code;
+    if (!cur.image_url && (r as any).image_url) cur.image_url = (r as any).image_url;
+    if ((r as any).region) cur.regions.add(String((r as any).region));
+    grouped.set(code, cur);
+  }
+
+  const items = Array.from(grouped.values())
+    .filter((i: any) => !isEpicCreator(i.creator_code))
+    .map((i: any) => ({
+      ...i,
+      value: Number(i.score.toFixed(2)),
+      score: Number(i.score.toFixed(2)),
+      minutes_24h: Number(i.minutes_24h.toFixed(1)),
+      minutes_6h: Number(i.minutes_6h.toFixed(1)),
+      regions: Array.from(i.regions),
+      label: `${i.panels_24h} panels`,
+    }))
+    .sort((a: any, b: any) => b.score - a.score)
+    .slice(0, limit);
+
+  const avgScore = items.length > 0
+    ? items.reduce((s: number, i: any) => s + toFiniteNumber(i.score, 0), 0) / items.length
+    : 0;
+
+  return {
+    emergingNow: items,
+    emergingNowStats: {
+      total_emerging_islands: items.length,
+      avg_score: Number(avgScore.toFixed(2)),
+      top_score: items.length > 0 ? Number(items[0].score || 0) : 0,
+      generated_at: new Date().toISOString(),
+    },
+  };
+}
+
+async function buildLinkGraphHealthPayload(supabase: any, weekStartDate: string, weekEndDate: string, limit = 20): Promise<any> {
+  const startIso = `${weekStartDate}T00:00:00.000Z`;
+  const endIso = `${weekEndDate}T23:59:59.999Z`;
+
+  const totalRes = await supabase
+    .from("discover_link_edges")
+    .select("parent_link_code", { count: "exact", head: true });
+  if (totalRes.error) throw new Error(totalRes.error.message);
+
+  const windowRes = await supabase
+    .from("discover_link_edges")
+    .select("parent_link_code,child_link_code,last_seen_at", { count: "exact" })
+    .gte("last_seen_at", startIso)
+    .lte("last_seen_at", endIso)
+    .order("last_seen_at", { ascending: false })
+    .limit(50000);
+  if (windowRes.error) throw new Error(windowRes.error.message);
+
+  const totalEdges = Number(totalRes.count || 0);
+  const edgesSeenInWeek = Number(windowRes.count || 0);
+  const rows = windowRes.data || [];
+
+  const parentAgg = new Map<string, { parent: string; edges: number; children: Set<string>; lastSeen: string | null }>();
+  const childrenSet = new Set<string>();
+  for (const r of rows) {
+    const parent = String((r as any).parent_link_code || "").trim();
+    const child = String((r as any).child_link_code || "").trim();
+    const lastSeen = String((r as any).last_seen_at || "");
+    if (!parent || !child) continue;
+    childrenSet.add(child);
+    const cur = parentAgg.get(parent) || { parent, edges: 0, children: new Set<string>(), lastSeen: null };
+    cur.edges += 1;
+    cur.children.add(child);
+    if (!cur.lastSeen || (lastSeen && lastSeen > cur.lastSeen)) cur.lastSeen = lastSeen;
+    parentAgg.set(parent, cur);
+  }
+
+  const topParentsBase = Array.from(parentAgg.values())
+    .sort((a, b) => b.edges - a.edges)
+    .slice(0, limit);
+  const parentCodes = topParentsBase.map((p) => p.parent);
+  const metaMap = new Map<string, { title: string | null; creator: string | null; image: string | null }>();
+  if (parentCodes.length > 0) {
+    const { data: metaRows, error: metaErr } = await supabase
+      .from("discover_link_metadata")
+      .select("link_code,title,support_code,image_url")
+      .in("link_code", parentCodes);
+    if (metaErr) throw new Error(metaErr.message);
+    for (const m of metaRows || []) {
+      metaMap.set(String((m as any).link_code), {
+        title: (m as any).title || null,
+        creator: (m as any).support_code || null,
+        image: (m as any).image_url || null,
+      });
+    }
+  }
+
+  const topParents = topParentsBase.map((p) => {
+    const meta = metaMap.get(p.parent);
+    return {
+      code: p.parent,
+      name: meta?.title || p.parent,
+      title: meta?.title || p.parent,
+      creator: meta?.creator || null,
+      creator_code: meta?.creator || null,
+      image_url: meta?.image || null,
+      value: p.edges,
+      edges_count: p.edges,
+      distinct_children: p.children.size,
+      last_seen_at: p.lastSeen,
+      label: `${p.children.size} children`,
+    };
+  });
+
+  const staleEdgesApprox = Math.max(0, totalEdges - edgesSeenInWeek);
+
+  return {
+    total_edges: totalEdges,
+    edges_seen_in_week: edgesSeenInWeek,
+    active_parents_in_week: parentAgg.size,
+    active_children_in_week: childrenSet.size,
+    stale_edges_approx: staleEdgesApprox,
+    freshness_pct: totalEdges > 0 ? Number(((edgesSeenInWeek / totalEdges) * 100).toFixed(2)) : 0,
+    top_parents: topParents,
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -565,6 +958,11 @@ serve(async (req) => {
       baselineAvailable: Boolean(prevReportId),
     };
 
+    const exposureEfficiencyBreakdowns = deriveExposureEfficiencyBreakdowns(computedRankings);
+    computedRankings.exposureEfficiencyPanelTop = exposureEfficiencyBreakdowns.exposureEfficiencyPanelTop;
+    computedRankings.exposureEfficiencyCreatorTop = exposureEfficiencyBreakdowns.exposureEfficiencyCreatorTop;
+    computedRankings.exposureEfficiencyCreatorBottom = exposureEfficiencyBreakdowns.exposureEfficiencyCreatorBottom;
+
     // Partner signals: internal category codenames (no island names/codes exposed).
     try {
       const partnerSignals = await buildPartnerSignals(supabase, reportId!);
@@ -637,6 +1035,20 @@ serve(async (req) => {
     const epicSpotlight = buildEpicSpotlight(computedRankings);
     sanitizeRankingsExcludeEpic(computedRankings);
     computedRankings.epicSpotlight = epicSpotlight;
+
+    const qualityAdvocacySignals = deriveQualityAndAdvocacySignals(computedRankings);
+    computedRankings.mapQualityCompositeTop = qualityAdvocacySignals.mapQualityCompositeTop;
+    computedRankings.advocacyGapLeaders = qualityAdvocacySignals.advocacyGapLeaders;
+    computedRankings.advocacyOverIndexedRecs = qualityAdvocacySignals.advocacyOverIndexedRecs;
+    computedRankings.advocacySignalsStats = qualityAdvocacySignals.advocacySignalsStats;
+
+    const [emergingPayload, linkGraphHealth] = await Promise.all([
+      buildEmergingNowPayload(supabase, 40),
+      buildLinkGraphHealthPayload(supabase, weekStartDate, weekEndDate, 20),
+    ]);
+    computedRankings.emergingNow = emergingPayload.emergingNow;
+    computedRankings.emergingNowStats = emergingPayload.emergingNowStats;
+    computedRankings.linkGraphHealth = linkGraphHealth;
 
     // â”€â”€ Save to discover_reports â”€â”€
     await supabase.from("discover_reports").update({
@@ -736,7 +1148,7 @@ serve(async (req) => {
       postTasks.push((async () => {
         console.log(`[rebuild] Reinjecting exposure for weekly ${weeklyReportId}`);
         const exposureRes = await supabase.functions.invoke("discover-exposure-report", {
-          body: { weeklyReportId, embedTimelineLimit: 0, includeCollections: false },
+          body: { weeklyReportId, embedTimelineLimit: 600, includeCollections: true, includeBrowse: false },
         });
         if (exposureRes.error || (exposureRes.data as any)?.success === false) {
           throw new Error(

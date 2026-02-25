@@ -10,6 +10,11 @@ const corsHeaders = {
 const EPIC_ACCOUNT_OAUTH_TOKEN = "https://account-public-service-prod.ol.epicgames.com/account/api/oauth/token";
 const EPIC_LINKS_MNEMONIC_BASE = "https://links-public-service-live.ol.epicgames.com/links/api/fn/mnemonic";
 const EPIC_LINKS_MNEMONIC_RELATED_BASE = "https://links-public-service-live.ol.epicgames.com/links/api/fn/mnemonic";
+const EPIC_FORTNITE_VERSION = "https://fngw-mcp-gc-livefn.ol.epicgames.com/fortnite/api/version";
+const EPIC_DISCOVERY_ACCESS_TOKEN_BASE =
+  "https://fngw-mcp-gc-livefn.ol.epicgames.com/fortnite/api/discovery/accessToken";
+const FN_DISCOVERY_V2_SURFACE_BASE =
+  "https://fn-service-discovery-live-public.ogs.live.on.epicgames.com/api/v2/discovery/surface";
 
 const ISLAND_CODE_RE = /^\d{4}-\d{4}-\d{4}$/;
 
@@ -63,6 +68,21 @@ function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function toEpochMs(v: unknown): number | null {
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const s = String(v).trim();
+  if (!s) return null;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : null;
+}
+
+function sameInstant(a: unknown, b: unknown): boolean {
+  const ta = toEpochMs(a);
+  const tb = toEpochMs(b);
+  return ta != null && tb != null && ta === tb;
 }
 
 async function requireAdminOrEditor(req: Request) {
@@ -149,6 +169,76 @@ async function getEg1Token(): Promise<{ accountId: string; accessToken: string }
   return { accountId, accessToken };
 }
 
+async function getLiveBranchStr(): Promise<string> {
+  const res = await fetchJson(EPIC_FORTNITE_VERSION, { timeoutMs: 15000 });
+  if (!res.ok) {
+    const msg = res.json?.errorMessage || res.json?.errorCode || `HTTP ${res.status}`;
+    throw new Error(`fortnite/api/version failed: ${msg}`);
+  }
+  const version = String(res.json?.version || "");
+  if (!version) throw new Error("fortnite/api/version returned empty version");
+  return `++Fortnite+Release-${version}`;
+}
+
+async function getDiscoveryAccessToken(branchStr: string, eg1AccessToken: string): Promise<string> {
+  const branchEnc = encodeURIComponent(branchStr);
+  const url = `${EPIC_DISCOVERY_ACCESS_TOKEN_BASE}/${branchEnc}`;
+  const res = await fetchJson(url, {
+    headers: {
+      Authorization: `Bearer ${eg1AccessToken}`,
+      Accept: "application/json",
+      "User-Agent": `Fortnite/${branchStr} Windows/10`,
+    },
+    timeoutMs: 20000,
+  });
+  if (!res.ok) {
+    const msg = res.json?.errorMessage || res.json?.errorCode || `HTTP ${res.status}`;
+    throw new Error(`discovery/accessToken failed: ${msg}`);
+  }
+  const tok = String(res.json?.token || "");
+  if (!tok) throw new Error("discovery/accessToken returned empty token");
+  return tok;
+}
+
+function buildDiscoveryProfileBody(accountId: string, region: string, platform: string, locale: string) {
+  return {
+    playerId: accountId,
+    partyMemberIds: [accountId],
+    locale,
+    matchmakingRegion: region,
+    platform,
+    isCabined: false,
+    ratingAuthority: "ESRB",
+    rating: "TEEN",
+    numLocalPlayers: 1,
+  };
+}
+
+function normalizePositiveCcu(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n;
+}
+
+function computeSurfaceCcu(surfaceJson: any): { sumUnique: number; maxUnique: number; uniqueCount: number; panelCount: number } {
+  const panels = Array.isArray(surfaceJson?.panels) ? surfaceJson.panels : [];
+  const byCode = new Map<string, number>();
+  for (const p of panels) {
+    const results = Array.isArray(p?.firstPage?.results) ? p.firstPage.results : [];
+    for (const r of results) {
+      const code = String(r?.linkCode || "").trim();
+      if (!code) continue;
+      const ccu = normalizePositiveCcu(r?.globalCCU);
+      const prev = byCode.get(code) || 0;
+      if (ccu > prev) byCode.set(code, ccu);
+    }
+  }
+  const values = Array.from(byCode.values());
+  const sumUnique = values.reduce((a, b) => a + b, 0);
+  const maxUnique = values.reduce((a, b) => Math.max(a, b), 0);
+  return { sumUnique, maxUnique, uniqueCount: byCode.size, panelCount: panels.length };
+}
+
 function extractFields(payload: any) {
   const top = payload || {};
   const m = top.metadata || {};
@@ -157,6 +247,44 @@ function extractFields(payload: any) {
 
   const imageUrls = m.image_urls || m.imageUrls || null;
   const extraImages = m.extra_image_urls || m.extraImageUrls || null;
+  const pickImageUrl = (...candidates: any[]): string | null => {
+    for (const c of candidates) {
+      if (!c) continue;
+      if (typeof c === "string") {
+        const v = c.trim();
+        if (v) return v;
+        continue;
+      }
+      if (Array.isArray(c)) {
+        for (const item of c) {
+          if (typeof item === "string" && item.trim()) return item.trim();
+          if (item && typeof item === "object") {
+            const u = (item.url ?? item.src ?? item.image_url ?? item.imageUrl) ?? null;
+            if (typeof u === "string" && u.trim()) return u.trim();
+          }
+        }
+        continue;
+      }
+      if (typeof c === "object") {
+        const u = (c.url ?? c.src ?? c.image_url ?? c.imageUrl) ?? null;
+        if (typeof u === "string" && u.trim()) return u.trim();
+      }
+    }
+    return null;
+  };
+  const resolvedImageUrl = pickImageUrl(
+    m.image_url,
+    m.imageUrl,
+    imageUrls,
+    extraImages,
+    m.tile_background_image_urls,
+    m.pop_out_image_urls,
+    m.logo_image_urls,
+    m.surface_banner_image_urls,
+    m.surface_background_image_urls,
+    m.surface_logo_image_urls,
+    m.icon_image_urls,
+  );
 
   return {
     namespace: top.namespace ?? null,
@@ -168,7 +296,7 @@ function extractFields(payload: any) {
     tagline: m.tagline ?? null,
     introduction: m.introduction ?? null,
     locale: m.locale ?? null,
-    imageUrl: m.image_url ?? m.imageUrl ?? null,
+    imageUrl: resolvedImageUrl,
     imageUrls,
     extraImageUrls: extraImages,
     videoVuid: m.video_vuid ?? m.videoVuid ?? null,
@@ -186,6 +314,9 @@ function extractFields(payload: any) {
     discoveryIntent: top.discoveryIntent ?? null,
     active: top.active ?? null,
     disabled: top.disabled ?? null,
+    refId: m.ref_id ?? m.refId ?? null,
+    refType: m.ref_type ?? m.refType ?? null,
+    interestType: m.interest_type ?? m.interestType ?? null,
   };
 }
 
@@ -259,17 +390,27 @@ function parseRelatedPayload(parentCode: string, payload: any, nowIso: string): 
       disabled: f.disabled,
       last_fetched_at: nowIso,
       last_error: null,
-      raw: {},
+      raw: {
+        ...(f.refId ? { ref_id: f.refId } : {}),
+        ...(f.refType ? { ref_type: f.refType } : {}),
+        ...(f.interestType ? { interest_type: f.interestType } : {}),
+      },
       updated_at: nowIso,
     });
   };
 
-  const pushEdge = (childCodeRaw: unknown, edgeType: string, sortOrder: number | null = null) => {
+  const pushEdge = (
+    parentCodeRaw: unknown,
+    childCodeRaw: unknown,
+    edgeType: string,
+    sortOrder: number | null = null,
+  ) => {
+    const parent = String(parentCodeRaw || "").trim();
     const childCode = String(childCodeRaw || "").trim();
-    if (!childCode || childCode === parentCode || !isLikelyLinkCode(childCode)) return;
+    if (!parent || !childCode || childCode === parent || !isLikelyLinkCode(childCode)) return;
     discovered.add(childCode);
     edges.push({
-      parent_link_code: parentCode,
+      parent_link_code: parent,
       child_link_code: childCode,
       edge_type: edgeType,
       sort_order: sortOrder,
@@ -279,6 +420,24 @@ function parseRelatedPayload(parentCode: string, payload: any, nowIso: string): 
     });
   };
 
+  const parseMetadataHints = (ownerCodeRaw: unknown, metadata: any) => {
+    const ownerCode = String(ownerCodeRaw || "").trim();
+    if (!ownerCode || !metadata || typeof metadata !== "object") return;
+
+    if (Array.isArray(metadata.sub_link_codes)) {
+      metadata.sub_link_codes.forEach((c: any, i: number) => pushEdge(ownerCode, c, "sub_link_code", i));
+    }
+    if (metadata.default_sub_link_code) {
+      pushEdge(ownerCode, metadata.default_sub_link_code, "default_sub_link_code", 0);
+    }
+    if (metadata.fallback_links && typeof metadata.fallback_links === "object") {
+      let idx = 0;
+      for (const v of Object.values(metadata.fallback_links)) {
+        pushEdge(ownerCode, v, "fallback_link", idx++);
+      }
+    }
+  };
+
   // Requested mnemonic may come as a full link object at top-level.
   if (payload?.mnemonic) putMeta(payload);
 
@@ -286,8 +445,10 @@ function parseRelatedPayload(parentCode: string, payload: any, nowIso: string): 
   if (payload?.links && typeof payload.links === "object") {
     let idx = 0;
     for (const code of Object.keys(payload.links)) {
-      pushEdge(code, "related_link", idx++);
-      putMeta(payload.links[code]);
+      pushEdge(parentCode, code, "related_link", idx++);
+      const linked = payload.links[code];
+      putMeta(linked);
+      parseMetadataHints(code, linked?.metadata);
     }
   }
 
@@ -296,27 +457,15 @@ function parseRelatedPayload(parentCode: string, payload: any, nowIso: string): 
     let idx = 0;
     for (const p of payload.parentLinks) {
       const code = String(p?.mnemonic || "");
-      pushEdge(code, "parent_link", idx++);
+      pushEdge(parentCode, code, "parent_link", idx++);
       putMeta(p);
+      parseMetadataHints(code, p?.metadata);
     }
   }
 
   // Parse child hints from metadata.
   const meta = payload?.metadata || (payload?.links?.[parentCode]?.metadata ?? null);
-  if (meta && typeof meta === "object") {
-    if (Array.isArray(meta.sub_link_codes)) {
-      meta.sub_link_codes.forEach((c: any, i: number) => pushEdge(c, "sub_link_code", i));
-    }
-    if (meta.default_sub_link_code) {
-      pushEdge(meta.default_sub_link_code, "default_sub_link_code", 0);
-    }
-    if (meta.fallback_links && typeof meta.fallback_links === "object") {
-      let idx = 0;
-      for (const v of Object.values(meta.fallback_links)) {
-        pushEdge(v, "fallback_link", idx++);
-      }
-    }
-  }
+  parseMetadataHints(parentCode, meta);
 
   return {
     edges,
@@ -509,7 +658,7 @@ serve(async (req) => {
       const chunk = codes.slice(i, i + 100);
       const { data, error } = await supabase
         .from("discover_link_metadata")
-        .select("link_code,title,image_url,updated_at_epic,moderation_status,link_state,last_error")
+        .select("link_code,title,image_url,updated_at_epic,moderation_status,link_state,last_error,version,raw")
         .in("link_code", chunk);
       if (error) return json({ success: false, error: error.message }, 500);
       for (const r of data || []) existingMap.set(String(r.link_code), r);
@@ -565,6 +714,68 @@ serve(async (req) => {
     }
 
     const auth = await getEg1Token();
+    const ccuRegion = String(body.ccuRegion || "NAE");
+    const ccuPlatform = String(body.ccuPlatform || "Windows");
+    const ccuLocale = String(body.ccuLocale || "en-US");
+    const discoveryProfile = buildDiscoveryProfileBody(auth.accountId, ccuRegion, ccuPlatform, ccuLocale);
+
+    let discoveryCtxPromise: Promise<{ branchStr: string; discAccessToken: string }> | null = null;
+    const getDiscoveryCtx = async (): Promise<{ branchStr: string; discAccessToken: string }> => {
+      if (!discoveryCtxPromise) {
+        discoveryCtxPromise = (async () => {
+          const branchStr = await getLiveBranchStr();
+          const discAccessToken = await getDiscoveryAccessToken(branchStr, auth.accessToken);
+          return { branchStr, discAccessToken };
+        })();
+      }
+      return await discoveryCtxPromise;
+    };
+
+    const surfaceCcuCache = new Map<string, { sumUnique: number; maxUnique: number; uniqueCount: number; panelCount: number } | null>();
+    const isReferenceSurfaceCcuCandidate = (linkCode: string, refId: string | null): boolean => {
+      const code = String(linkCode || "").toLowerCase();
+      const surface = String(refId || "");
+      if (!surface.startsWith("CreativeDiscoverySurface_")) return false;
+      return code.startsWith("reference_surface_collab_") || code.startsWith("reference_surface_category_");
+    };
+    const fetchReferenceSurfaceCcu = async (
+      linkCode: string,
+      refId: string | null,
+    ): Promise<{ sumUnique: number; maxUnique: number; uniqueCount: number; panelCount: number } | null> => {
+      const surfaceName = String(refId || "").trim();
+      if (!isReferenceSurfaceCcuCandidate(linkCode, surfaceName)) return null;
+      if (surfaceCcuCache.has(surfaceName)) return surfaceCcuCache.get(surfaceName) || null;
+      if (Date.now() - startedAt > budgetMs - 5000) {
+        surfaceCcuCache.set(surfaceName, null);
+        return null;
+      }
+      try {
+        const { branchStr, discAccessToken } = await getDiscoveryCtx();
+        const streamEnc = encodeURIComponent(branchStr);
+        const url = `${FN_DISCOVERY_V2_SURFACE_BASE}/${encodeURIComponent(surfaceName)}?appId=Fortnite&stream=${streamEnc}`;
+        const res = await fetchJson(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${auth.accessToken}`,
+            "X-Epic-Access-Token": discAccessToken,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(discoveryProfile),
+          timeoutMs: 25000,
+        });
+        if (!res.ok) {
+          surfaceCcuCache.set(surfaceName, null);
+          return null;
+        }
+        const ccu = computeSurfaceCcu(res.json);
+        surfaceCcuCache.set(surfaceName, ccu);
+        return ccu;
+      } catch {
+        surfaceCcuCache.set(surfaceName, null);
+        return null;
+      }
+    };
 
     const updates: any[] = [];
     const events: any[] = [];
@@ -572,6 +783,20 @@ serve(async (req) => {
     const edgeMapByParent = new Map<string, RelatedEdge[]>();
     const relatedMetaMap = new Map<string, any>();
     const relatedCodesToEnqueue = new Set<string>();
+    let relatedFetchOk = 0;
+    let relatedFetchFailed = 0;
+    const relatedFailuresByStatus = new Map<string, number>();
+    const unresolvedTokensByType = new Map<string, number>();
+
+    const classifyCollectionToken = (value: string): string => {
+      const v = String(value || "").toLowerCase();
+      if (v.startsWith("reference_")) return "reference";
+      if (v.startsWith("ref_panel_")) return "ref_panel";
+      if (v.startsWith("set_")) return "set";
+      if (v.startsWith("playlist_")) return "playlist";
+      if (v.startsWith("gamecollections_")) return "gamecollections";
+      return "other_collection";
+    };
 
     for (const code of codes) {
       if (Date.now() - startedAt > budgetMs - 1500) break;
@@ -612,6 +837,21 @@ serve(async (req) => {
 
       const p = res.json;
       const f = extractFields(p);
+      const refSurfaceCcu = await fetchReferenceSurfaceCcu(code, f.refId);
+      const prevRaw = (prev?.raw && typeof prev.raw === "object") ? prev.raw as Record<string, unknown> : {};
+      const mergedRaw: Record<string, unknown> = {
+        ...prevRaw,
+        ...(f.refId ? { ref_id: f.refId } : {}),
+        ...(f.refType ? { ref_type: f.refType } : {}),
+        ...(f.interestType ? { interest_type: f.interestType } : {}),
+      };
+      if (refSurfaceCcu) {
+        mergedRaw.surface_ref_ccu_sum = refSurfaceCcu.sumUnique;
+        mergedRaw.surface_ref_ccu_max = refSurfaceCcu.maxUnique;
+        mergedRaw.surface_ref_unique_count = refSurfaceCcu.uniqueCount;
+        mergedRaw.surface_ref_panel_count = refSurfaceCcu.panelCount;
+        mergedRaw.surface_ref_ccu_computed_at = now.toISOString();
+      }
       const nextDue = nextDueFromSignals({
         isPremiumNow: premiumNow.has(code),
         lastSeenAt: lastSeenMap.get(code) || null,
@@ -622,7 +862,10 @@ serve(async (req) => {
       const prevTitle = prev.title != null ? String(prev.title) : null;
       const prevImage = prev.image_url != null ? String(prev.image_url) : null;
       const prevUpdated = prev.updated_at_epic != null ? String(prev.updated_at_epic) : null;
-      const prevVersion = prev.version != null ? Number(prev.version) : null;
+      const prevVersionRaw = prev.version != null ? Number(prev.version) : null;
+      const prevVersion = prevVersionRaw != null && Number.isFinite(prevVersionRaw) ? prevVersionRaw : null;
+      const nextVersionRaw = f.version != null ? Number(f.version) : null;
+      const nextVersion = nextVersionRaw != null && Number.isFinite(nextVersionRaw) ? nextVersionRaw : null;
       const prevMod = prev.moderation_status != null ? String(prev.moderation_status) : null;
       const prevState = prev.link_state != null ? String(prev.link_state) : null;
 
@@ -632,15 +875,15 @@ serve(async (req) => {
       if (prevTitle && f.title && prevTitle !== String(f.title)) {
         events.push({ link_code: code, event_type: "title_changed", old_value: { title: prevTitle }, new_value: { title: f.title } });
       }
-      if (prevUpdated && f.updatedAtEpic && prevUpdated !== String(f.updatedAtEpic)) {
+      if (prevUpdated && f.updatedAtEpic && !sameInstant(prevUpdated, f.updatedAtEpic)) {
         events.push({ link_code: code, event_type: "epic_updated", old_value: { updated: prevUpdated }, new_value: { updated: f.updatedAtEpic } });
       }
-      if (prevVersion != null && f.version != null && prevVersion !== Number(f.version)) {
+      if (prevVersion != null && nextVersion != null && prevVersion !== nextVersion) {
         events.push({
           link_code: code,
           event_type: "version_changed",
           old_value: { version: prevVersion },
-          new_value: { version: Number(f.version) },
+          new_value: { version: nextVersion },
         });
       }
       if ((prevMod && f.moderationStatus && prevMod !== String(f.moderationStatus)) || (prevState && f.linkState && prevState !== String(f.linkState))) {
@@ -687,8 +930,8 @@ serve(async (req) => {
         last_error: null,
         locked_at: null,
         lock_id: null,
-        // V1: do not persist full RAW payload permanently.
-        raw: {},
+        // Persist selected canonical reference context used by resolver/UI.
+        raw: mergedRaw,
         updated_at: now.toISOString(),
       });
 
@@ -709,6 +952,7 @@ serve(async (req) => {
           if (relatedRes.ok && relatedRes.json && typeof relatedRes.json === "object") {
             const parsed = parseRelatedPayload(code, relatedRes.json, now.toISOString());
             edgeMapByParent.set(code, parsed.edges);
+            relatedFetchOk++;
             for (const row of parsed.metadataRows) {
               if (!row?.link_code || row.link_code === code) continue;
               relatedMetaMap.set(String(row.link_code), row);
@@ -716,7 +960,16 @@ serve(async (req) => {
             for (const rc of parsed.discoveredCodes) {
               if (rc && rc !== code) relatedCodesToEnqueue.add(rc);
             }
+            if (!parsed.edges.length) {
+              const kind = classifyCollectionToken(code);
+              unresolvedTokensByType.set(kind, (unresolvedTokensByType.get(kind) || 0) + 1);
+            }
           } else {
+            relatedFetchFailed++;
+            const statusKey = String(relatedRes.status || 0);
+            relatedFailuresByStatus.set(statusKey, (relatedFailuresByStatus.get(statusKey) || 0) + 1);
+            const kind = classifyCollectionToken(code);
+            unresolvedTokensByType.set(kind, (unresolvedTokensByType.get(kind) || 0) + 1);
             results.push({
               linkCode: code,
               relatedOk: false,
@@ -725,6 +978,10 @@ serve(async (req) => {
             });
           }
         } catch (_e) {
+          relatedFetchFailed++;
+          relatedFailuresByStatus.set("exception", (relatedFailuresByStatus.get("exception") || 0) + 1);
+          const kind = classifyCollectionToken(code);
+          unresolvedTokensByType.set(kind, (unresolvedTokensByType.get(kind) || 0) + 1);
           // Ignore related failures: base metadata still succeeded.
         }
       }
@@ -836,6 +1093,12 @@ serve(async (req) => {
       edges_parents: edgeMapByParent.size,
       related_meta_rows: relatedMetaRows.length,
       related_codes_enqueued: relatedCodesToEnqueue.size,
+      related_fetch: {
+        ok: relatedFetchOk,
+        failed: relatedFetchFailed,
+        failure_by_status: Object.fromEntries(relatedFailuresByStatus.entries()),
+      },
+      unresolved_collection_tokens: Object.fromEntries(unresolvedTokensByType.entries()),
       duration_ms: Date.now() - startedAt,
       sample: results.slice(0, 10),
     });
