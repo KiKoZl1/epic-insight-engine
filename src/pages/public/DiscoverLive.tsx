@@ -1,10 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Eye, TrendingUp, AlertTriangle, Loader2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Eye, TrendingUp, AlertTriangle, Loader2, Clock3, Activity } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type PremiumRow = {
   as_of: string;
@@ -44,7 +58,6 @@ type PollutionRow = {
   duplicate_islands_7d: number;
   duplicates_over_min: number;
   spam_score: number;
-  sample_titles: string[] | null;
 };
 
 type RailChild = {
@@ -54,40 +67,119 @@ type RailChild = {
   creatorCode: string | null;
   ccu: number | null;
   edgeType: string | null;
+  sortOrder?: number | null;
 };
 
 type RailItem = {
   rank: number;
   linkCode: string;
+  rawLinkCode?: string;
   linkCodeType: string;
+  resolvedType: "island" | "collection" | "neutral";
+  resolvedFrom: "direct" | "edge_graph" | "panel_reference" | "neutral_fallback";
+  isPlaceholder: boolean;
+  debugTokenRaw?: string | null;
+  hoverIslandCode?: string | null;
   title: string;
   imageUrl: string | null;
   creatorCode: string | null;
+  publicSubtitle: string;
   ccu: number | null;
+  uptimeMinutes: number;
+  createdAtEpic?: string | null;
+  publishedAtEpic?: string | null;
+  updatedAtEpic?: string | null;
   children?: RailChild[];
+  childrenCount?: number;
 };
 
 type Rail = {
   panelName: string;
+  panelKey: string;
   panelDisplayName: string;
+  panelType: string | null;
+  featureTags: string[] | null;
+  rowKind: "island" | "collection" | "mixed";
+  displayOrder: number;
+  isPremium: boolean;
+  description: string | null;
+  timelineKey: string;
   items: RailItem[];
 };
 
-type PremiumViewItem = {
-  rank: number;
-  title: string;
-  linkCode: string;
-  linkCodeType: string;
-  creatorCode: string | null;
-  ccu: number | null;
-  children?: RailChild[];
+type DiscoveryHighlight = {
+  key: "top_ccu" | "latest_launch" | "latest_update";
+  label: string;
+  item: RailItem | null;
 };
+
+type TimelineSeriesPoint = {
+  ts: string;
+  ccu: number;
+  minutes_exposed: number;
+  active_items: number;
+};
+
+type TimelineTopItem = {
+  link_code: string;
+  title: string;
+  image_url: string | null;
+  creator_code: string | null;
+  minutes_exposed: number;
+};
+
+type PanelTimelinePayload = {
+  panelName: string;
+  from: string;
+  to: string;
+  series: TimelineSeriesPoint[];
+  sample_top_items: TimelineTopItem[];
+};
+
+const DISCOVERY_SURFACE = "CreativeDiscoverySurface_Frontend";
+const ISLAND_CODE_RE = /^\d{4}-\d{4}-\d{4}$/;
+
+function isIslandCode(code: string): boolean {
+  return ISLAND_CODE_RE.test(String(code || ""));
+}
 
 function fmtNum(n: number | null | undefined): string {
   if (n == null) return "-";
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-  return n.toLocaleString("en-US");
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return Math.round(n).toLocaleString("en-US");
+}
+
+function fmtMinutes(total: number | null | undefined): string {
+  const m = Math.max(0, Math.round(Number(total || 0)));
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
+  }
+  return `${m}m`;
+}
+
+function parseIsoToMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function panelSectionId(panelName: string): string {
+  return `panel-${String(panelName || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")}`;
+}
+
+function sortByFixedOrder<T extends { panelKey?: string; panelName?: string; displayOrder?: number }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const oa = Number(a.displayOrder ?? 9999);
+    const ob = Number(b.displayOrder ?? 9999);
+    if (oa !== ob) return oa - ob;
+    return String(a.panelName || a.panelKey || "").localeCompare(String(b.panelName || b.panelKey || ""));
+  });
 }
 
 export default function DiscoverLive() {
@@ -95,280 +187,615 @@ export default function DiscoverLive() {
   const locale = i18n.language === "pt-BR" ? "pt-BR" : "en-US";
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [premium, setPremium] = useState<PremiumRow[]>([]);
   const [emerging, setEmerging] = useState<EmergingRow[]>([]);
   const [pollution, setPollution] = useState<PollutionRow[]>([]);
+  const initialLoadDoneRef = useRef(false);
+  const initialRailsDoneRef = useRef(false);
+  const preservedScrollYRef = useRef<number | null>(null);
+  const [initialOverlayVisible, setInitialOverlayVisible] = useState(true);
+  const [initialOverlayProgress, setInitialOverlayProgress] = useState(0);
 
   const [rails, setRails] = useState<Rail[]>([]);
   const [railsLoading, setRailsLoading] = useState(false);
   const [railsError, setRailsError] = useState<string | null>(null);
 
   const [region, setRegion] = useState<string>("NAE");
-  const [surface, setSurface] = useState<string>("CreativeDiscoverySurface_Frontend");
-  const [panelName, setPanelName] = useState<string>("");
+  const [jumpPanel, setJumpPanel] = useState<string>("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const [p, e, pol] = await Promise.all([
-      supabase.from("discovery_public_premium_now").select("*").limit(5000),
-      supabase.from("discovery_public_emerging_now").select("*").limit(5000),
-      supabase.from("discovery_public_pollution_creators_now").select("*").limit(2000),
-    ]);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
+  const [timelineData, setTimelineData] = useState<PanelTimelinePayload | null>(null);
 
-    if (p.data) setPremium(p.data as PremiumRow[]);
-    if (e.data) setEmerging(e.data as EmergingRow[]);
-    if (pol.data) setPollution(pol.data as PollutionRow[]);
-    setLoading(false);
+  const preserveScroll = useCallback(() => {
+    if (typeof window === "undefined") return;
+    preservedScrollYRef.current = window.scrollY;
   }, []);
 
-  const loadRails = useCallback(async () => {
+  const restoreScroll = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const y = preservedScrollYRef.current;
+    if (y == null) return;
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: y, left: 0, behavior: "auto" });
+      preservedScrollYRef.current = null;
+    });
+  }, []);
+
+  const load = useCallback(async (background = false) => {
+    const firstLoad = !initialLoadDoneRef.current;
+    if (firstLoad && !background) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+      preserveScroll();
+    }
+    try {
+      const [p, e, pol] = await Promise.all([
+        supabase.from("discovery_public_premium_now").select("*").limit(5000),
+        supabase.from("discovery_public_emerging_now").select("*").limit(5000),
+        supabase.from("discovery_public_pollution_creators_now").select("*").limit(2000),
+      ]);
+
+      if (p.data) setPremium(p.data as PremiumRow[]);
+      if (e.data) setEmerging(e.data as EmergingRow[]);
+      if (pol.data) setPollution(pol.data as PollutionRow[]);
+    } finally {
+      if (firstLoad) {
+        initialLoadDoneRef.current = true;
+        setLoading(false);
+      } else {
+        setRefreshing(false);
+        restoreScroll();
+      }
+    }
+  }, [preserveScroll, restoreScroll]);
+
+  const loadRails = useCallback(async (background = false) => {
+    const firstLoad = !initialRailsDoneRef.current;
     setRailsLoading(true);
     setRailsError(null);
+    if (background) preserveScroll();
+    try {
+      const { data, error } = await supabase.functions.invoke("discover-rails-resolver", {
+        body: {
+          region,
+          surfaceName: DISCOVERY_SURFACE,
+          maxPanels: 40,
+          maxItemsPerPanel: 60,
+          maxChildrenPerCollection: 24,
+          includeChildren: true,
+        },
+      });
 
-    const { data, error } = await supabase.functions.invoke("discover-rails-resolver", {
-      body: {
-        region,
-        surfaceName: surface,
-        maxPanels: 24,
-        maxItemsPerPanel: 60,
-        maxChildrenPerCollection: 24,
-        includeChildren: true,
-      },
-    });
+      if (error) {
+        setRailsError(error.message || "Failed to load rails");
+        return;
+      }
 
-    if (error) {
-      setRails([]);
-      setRailsError(error.message || "Erro ao carregar rails");
+      const railsPayload = data as { rails?: Rail[] } | null;
+      const rows = Array.isArray(railsPayload?.rails) ? railsPayload.rails : [];
+      setRails(sortByFixedOrder(rows));
+    } finally {
+      if (firstLoad) initialRailsDoneRef.current = true;
       setRailsLoading(false);
-      return;
+      if (background) restoreScroll();
     }
-
-    const railsPayload = data as { rails?: Rail[] } | null;
-    const rows = Array.isArray(railsPayload?.rails) ? railsPayload.rails : [];
-    setRails(rows);
-    setRailsLoading(false);
-  }, [region, surface]);
+  }, [region, preserveScroll, restoreScroll]);
 
   useEffect(() => {
-    load();
-    const timer = setInterval(load, 60_000);
+    void load(false);
+    const timer = setInterval(() => {
+      void load(true);
+    }, 60_000);
     return () => clearInterval(timer);
   }, [load]);
 
   useEffect(() => {
-    loadRails();
-    const timer = setInterval(loadRails, 60_000);
+    void loadRails(false);
+    const timer = setInterval(() => {
+      void loadRails(true);
+    }, 60_000);
     return () => clearInterval(timer);
   }, [loadRails]);
 
-  const asOf = useMemo(() => {
-    const ts = premium[0]?.as_of || emerging[0]?.as_of || pollution[0]?.as_of || null;
-    return ts ? new Date(ts) : null;
-  }, [premium, emerging, pollution]);
-
-  const premiumRows = useMemo(() => {
-    return premium
-      .filter((r) => r.region === region && r.surface_name === surface)
-      .sort((a, b) => {
-        if (a.panel_name !== b.panel_name) return a.panel_name.localeCompare(b.panel_name);
-        return a.rank - b.rank;
-      });
-  }, [premium, region, surface]);
-
-  const panelsFromPremium = useMemo(() => {
-    const map = new Map<string, { name: string; display: string }>();
-    for (const r of premiumRows) {
-      const display = r.panel_display_name || r.panel_name;
-      if (!map.has(r.panel_name)) map.set(r.panel_name, { name: r.panel_name, display });
-    }
-    return Array.from(map.values());
-  }, [premiumRows]);
-
-  const panelOptions = useMemo(() => {
-    if (rails.length > 0) {
-      return rails.map((r) => ({
-        name: r.panelName,
-        display: r.panelDisplayName || r.panelName,
-      }));
-    }
-    return panelsFromPremium;
-  }, [rails, panelsFromPremium]);
+  const initialBusy = !initialLoadDoneRef.current || !initialRailsDoneRef.current;
 
   useEffect(() => {
-    if (panelOptions.length === 0) {
-      setPanelName("");
+    let intervalId: number | undefined;
+    let hideTimeoutId: number | undefined;
+
+    if (initialBusy) {
+      setInitialOverlayVisible(true);
+      setInitialOverlayProgress((prev) => (prev >= 5 ? prev : 5));
+      intervalId = window.setInterval(() => {
+        setInitialOverlayProgress((prev) => {
+          if (prev >= 92) return prev;
+          const step = Math.max(1, Math.round((100 - prev) / 18));
+          return Math.min(92, prev + step);
+        });
+      }, 120);
+    } else {
+      setInitialOverlayProgress(100);
+      hideTimeoutId = window.setTimeout(() => {
+        setInitialOverlayVisible(false);
+        setInitialOverlayProgress(0);
+      }, 280);
+    }
+
+    return () => {
+      if (intervalId != null) window.clearInterval(intervalId);
+      if (hideTimeoutId != null) window.clearTimeout(hideTimeoutId);
+    };
+  }, [initialBusy]);
+
+  const displayRails = useMemo(() => {
+    return sortByFixedOrder(rails);
+  }, [rails]);
+
+  const fixedExperienceRails = useMemo(
+    () => displayRails.filter((r) => r.panelKey === "other_experiences_by_epic"),
+    [displayRails],
+  );
+
+  const mainRails = useMemo(
+    () => displayRails.filter((r) => r.panelKey !== "other_experiences_by_epic" && r.panelKey !== "featured_collections"),
+    [displayRails],
+  );
+
+  const highlights = useMemo<DiscoveryHighlight[]>(() => {
+    const islandRows = mainRails
+      .filter((rail) => rail.rowKind !== "collection")
+      .flatMap((rail) =>
+        rail.items
+          .filter((item) => item.resolvedType === "island" && !item.isPlaceholder)
+          .map((item) => ({ item, panelLabel: rail.panelDisplayName, panelKey: rail.panelKey })),
+      );
+
+    const pickMostRecent = (
+      rows: Array<{ item: RailItem; panelLabel: string; panelKey: string }>,
+      getTsMs: (item: RailItem) => number | null,
+    ) => {
+      let best: { row: { item: RailItem; panelLabel: string; panelKey: string }; ts: number } | null = null;
+      for (const row of rows) {
+        const ts = getTsMs(row.item);
+        if (ts == null) continue;
+        if (!best || ts > best.ts || (ts === best.ts && Number(row.item.ccu || 0) > Number(best.row.item.ccu || 0))) {
+          best = { row, ts };
+        }
+      }
+      return best?.row ?? null;
+    };
+
+    const topCcuRow = islandRows
+      .filter((row) => Number(row.item.ccu || 0) > 0)
+      .sort((a, b) => Number(b.item.ccu || 0) - Number(a.item.ccu || 0))[0] || null;
+
+    let newestLaunchRow = pickMostRecent(
+      islandRows,
+      (item) => parseIsoToMs(item.publishedAtEpic) ?? parseIsoToMs(item.createdAtEpic),
+    );
+    if (!newestLaunchRow) {
+      newestLaunchRow = islandRows
+        .filter((row) => row.panelKey === "new" || row.panelKey === "new_released" || row.panelKey === "new_experiences")
+        .sort((a, b) => {
+          const uptimeDiff = Number(a.item.uptimeMinutes || 0) - Number(b.item.uptimeMinutes || 0);
+          if (uptimeDiff !== 0) return uptimeDiff;
+          return Number(b.item.ccu || 0) - Number(a.item.ccu || 0);
+        })[0] || null;
+    }
+
+    let newestUpdateRow = pickMostRecent(
+      islandRows,
+      (item) => parseIsoToMs(item.updatedAtEpic),
+    );
+    if (!newestUpdateRow) {
+      newestUpdateRow = islandRows
+        .filter((row) => row.panelKey === "updated")
+        .sort((a, b) => {
+          const uptimeDiff = Number(a.item.uptimeMinutes || 0) - Number(b.item.uptimeMinutes || 0);
+          if (uptimeDiff !== 0) return uptimeDiff;
+          return Number(b.item.ccu || 0) - Number(a.item.ccu || 0);
+        })[0] || null;
+    }
+
+    return [
+      {
+        key: "top_ccu",
+        label: t("discover.highlightTopCcu"),
+        item: topCcuRow?.item || null,
+      },
+      {
+        key: "latest_launch",
+        label: t("discover.highlightLatestLaunch"),
+        item: newestLaunchRow?.item || null,
+      },
+      {
+        key: "latest_update",
+        label: t("discover.highlightLatestUpdate"),
+        item: newestUpdateRow?.item || null,
+      },
+    ];
+  }, [mainRails, t]);
+
+  useEffect(() => {
+    if (!mainRails.length) {
+      setJumpPanel("");
       return;
     }
-    if (!panelName || !panelOptions.find((p) => p.name === panelName)) {
-      setPanelName(panelOptions[0].name);
+    if (!jumpPanel || !mainRails.find((r) => r.panelName === jumpPanel)) {
+      setJumpPanel(mainRails[0].panelName);
     }
-  }, [panelOptions, panelName]);
-
-  const premiumInPanel = useMemo(() => {
-    return premiumRows.filter((r) => r.panel_name === panelName).sort((a, b) => a.rank - b.rank).slice(0, 20);
-  }, [premiumRows, panelName]);
-
-  const selectedRail = useMemo(() => {
-    if (!panelName) return null;
-    return rails.find((r) => r.panelName === panelName) || null;
-  }, [rails, panelName]);
-
-  const premiumViewItems = useMemo<PremiumViewItem[]>(() => {
-    if (selectedRail?.items?.length) {
-      return selectedRail.items.slice(0, 20).map((it) => ({
-        rank: it.rank,
-        title: it.title || it.linkCode,
-        linkCode: it.linkCode,
-        linkCodeType: it.linkCodeType,
-        creatorCode: it.creatorCode || null,
-        ccu: it.ccu ?? null,
-        children: Array.isArray(it.children) ? it.children.slice(0, 8) : undefined,
-      }));
-    }
-
-    return premiumInPanel.map((r) => ({
-      rank: r.rank,
-      title: r.title || r.link_code,
-      linkCode: r.link_code,
-      linkCodeType: r.link_code_type,
-      creatorCode: r.creator_code || null,
-      ccu: r.ccu ?? null,
-    }));
-  }, [selectedRail, premiumInPanel]);
+  }, [mainRails, jumpPanel]);
 
   const emergingRows = useMemo(() => {
     return emerging
-      .filter((r) => r.region === region && r.surface_name === surface)
+      .filter((r) => r.region === region && r.surface_name === DISCOVERY_SURFACE)
       .sort((a, b) => (b.score || 0) - (a.score || 0))
-      .slice(0, 50);
-  }, [emerging, region, surface]);
+      .slice(0, 20);
+  }, [emerging, region]);
 
   const pollutionRows = useMemo(() => {
     return pollution
       .slice()
       .sort((a, b) => (b.spam_score || 0) - (a.spam_score || 0))
-      .slice(0, 50);
+      .slice(0, 20);
   }, [pollution]);
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  const scrollToPanel = useCallback((name: string) => {
+    setJumpPanel(name);
+    const id = panelSectionId(name);
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const openTimeline = useCallback(
+    async (rail: Rail) => {
+      setTimelineOpen(true);
+      setTimelineLoading(true);
+      setTimelineError(null);
+      setTimelineData(null);
+
+      const { data, error } = await supabase.functions.invoke("discover-panel-timeline", {
+        body: {
+          region,
+          surfaceName: DISCOVERY_SURFACE,
+          panelName: rail.panelName,
+          hours: 24,
+        },
+      });
+
+      if (error) {
+        setTimelineError(error.message || "Failed to load timeline");
+        setTimelineLoading(false);
+        return;
+      }
+
+      const payload = data as {
+        panelName?: string;
+        from?: string;
+        to?: string;
+        series?: TimelineSeriesPoint[];
+        sample_top_items?: TimelineTopItem[];
+      };
+
+      setTimelineData({
+        panelName: String(payload?.panelName || rail.panelDisplayName || rail.panelName),
+        from: String(payload?.from || ""),
+        to: String(payload?.to || ""),
+        series: Array.isArray(payload?.series) ? payload.series : [],
+        sample_top_items: Array.isArray(payload?.sample_top_items) ? payload.sample_top_items : [],
+      });
+      setTimelineLoading(false);
+    },
+    [region],
+  );
+
+  const timelineChartData = useMemo(() => {
+    if (!timelineData?.series?.length) return [];
+    return timelineData.series.map((p) => ({
+      ...p,
+      label: new Date(p.ts).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }),
+    }));
+  }, [timelineData, locale]);
+
+  const handleHorizontalWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
+    const el = event.currentTarget;
+    const hasOverflowX = el.scrollWidth > el.clientWidth + 1;
+    if (!hasOverflowX) return;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (delta === 0) return;
+    // Force-block native vertical page scrolling while pointer is over horizontal rail.
+    const nativeEvent = event.nativeEvent as unknown as { preventDefault?: () => void; stopImmediatePropagation?: () => void };
+    nativeEvent.preventDefault?.();
+    nativeEvent.stopImmediatePropagation?.();
+    event.preventDefault();
+    event.stopPropagation();
+    el.scrollLeft += delta;
+  }, []);
 
   return (
-    <div className="px-6 py-12 max-w-6xl mx-auto space-y-8">
-      <div className="flex flex-col gap-2">
-        <h1 className="font-display text-3xl font-bold">{t("discover.title")}</h1>
-        <p className="text-muted-foreground">{t("discover.subtitle")}</p>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Badge variant="secondary" className="font-mono">
-            as_of: {asOf ? asOf.toLocaleString(locale) : "-"}
-          </Badge>
+    <div className="px-6 py-10 max-w-[1380px] mx-auto space-y-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="space-y-1">
+          <h1 className="font-display text-3xl font-bold">{t("discover.title")}</h1>
         </div>
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">{t("common.filter")}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">{t("common.region")}</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="w-[160px] space-y-1">
+            <p className="text-[11px] font-medium text-muted-foreground">{t("common.region")}</p>
             <Select value={region} onValueChange={setRegion}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {["NAE", "EU", "BR", "ASIA"].map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {r}
+                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-[220px] space-y-1">
+            <p className="text-[11px] font-medium text-muted-foreground">{t("discover.jumpToPanel")}</p>
+            <Select value={jumpPanel} onValueChange={scrollToPanel}>
+              <SelectTrigger>
+                <SelectValue placeholder={t("discover.jumpToPanel")} />
+              </SelectTrigger>
+              <SelectContent>
+                {mainRails.map((rail) => (
+                  <SelectItem key={rail.panelName} value={rail.panelName}>
+                    {rail.panelDisplayName}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+          {(loading || railsLoading || refreshing) && (
+            <Badge variant="outline" className="gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {railsLoading ? t("discover.updatingRails") : t("discover.updating")}
+            </Badge>
+          )}
+        </div>
+      </div>
 
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">{t("common.surface")}</p>
-            <Select value={surface} onValueChange={setSurface}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="CreativeDiscoverySurface_Frontend">Frontend</SelectItem>
-                <SelectItem value="CreativeDiscoverySurface_Browse">Browse</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">{t("discover.panelPremium")}</p>
-            <Select value={panelName} onValueChange={setPanelName}>
-              <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
-              <SelectContent>
-                {panelOptions.map((p) => (
-                  <SelectItem key={p.name} value={p.name}>
-                    {p.display}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">{t("discover.highlightsTitle")}</CardTitle>
+          <p className="text-xs text-muted-foreground">{t("discover.highlightsSubtitle")}</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-3">
+            {highlights.map((highlight) => (
+              <div key={highlight.key} className="rounded-xl border overflow-hidden bg-card">
+                <div className="relative h-[180px] bg-muted/40">
+                  {highlight.item?.imageUrl ? (
+                    <img src={highlight.item.imageUrl} alt={highlight.item.title} className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="h-full w-full bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/20" />
+                  <div className="absolute left-3 top-3">
+                    <Badge className="bg-black/65 text-white border-white/20">{highlight.label}</Badge>
+                  </div>
+                  <div className="absolute inset-x-3 bottom-3 text-white space-y-1">
+                    <p className="text-sm font-semibold leading-tight line-clamp-2">
+                      {highlight.item?.title || t("discover.highlightNoSignal")}
+                    </p>
+                    <div className="flex items-center justify-end text-[11px] text-white/80">
+                      <span>CCU {fmtNum(highlight.item?.ccu)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="px-3 py-2 text-[11px] text-muted-foreground flex items-center">
+                  <span>{highlight.item?.publicSubtitle || "-"}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Eye className="h-4 w-4" /> {t("discover.premiumNow")}
-            </CardTitle>
-            {railsError && (
-              <p className="text-xs text-muted-foreground">
-                rails resolver indisponivel, exibindo fallback da snapshot.
-              </p>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {railsLoading ? (
-              <p className="text-sm text-muted-foreground">Carregando rail resolvido...</p>
-            ) : premiumViewItems.length === 0 ? (
+      <div className="space-y-6">
+        {railsError && (
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-sm text-muted-foreground">{t("discover.railsFallback")}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {mainRails.length === 0 ? (
+          <Card>
+            <CardContent className="pt-6">
               <p className="text-sm text-muted-foreground">{t("discover.noDataFilter")}</p>
-            ) : (
-              premiumViewItems.map((item) => (
-                <div key={`${panelName}:${item.rank}:${item.linkCode}`} className="rounded-md border p-2 space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs font-mono text-muted-foreground">#{item.rank}</p>
-                      <p className="text-sm font-medium truncate">{item.title}</p>
-                      <p className="text-[11px] text-muted-foreground truncate">
-                        {item.creatorCode ? `@${item.creatorCode}` : item.linkCodeType} - {item.linkCode}
-                      </p>
+            </CardContent>
+          </Card>
+        ) : (
+          mainRails.map((rail) => {
+            const isHomebar = rail.panelKey === "homebar";
+            const isGameCollections = rail.panelKey === "game_collections";
+            const allowTimeline = rail.rowKind !== "collection" && rail.panelKey !== "game_collections" && rail.panelKey !== "other_experiences_by_epic";
+            const showUptime = allowTimeline;
+            const railItems = isGameCollections
+              ? [...rail.items].sort((a, b) => {
+                  const ccuA = Number(a.ccu ?? -1);
+                  const ccuB = Number(b.ccu ?? -1);
+                  if (ccuB !== ccuA) return ccuB - ccuA;
+                  return String(a.title || "").localeCompare(String(b.title || ""));
+                })
+              : rail.items;
+
+            return (
+              <Card key={rail.panelName} id={panelSectionId(rail.panelName)} className="scroll-mt-24">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <CardTitle className="text-base font-medium flex items-center gap-2">
+                        <Eye className="h-4 w-4" />
+                        {rail.panelDisplayName}
+                      </CardTitle>
+                      {rail.description && <p className="text-xs text-muted-foreground">{rail.description}</p>}
                     </div>
-                    <div className="text-right">
-                      <p className="text-xs text-muted-foreground">{t("common.ccu")}</p>
-                      <p className="font-display font-semibold">{fmtNum(item.ccu)}</p>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="font-mono">
+                        {fmtNum(rail.items.length)} {t("discover.items")}
+                      </Badge>
+                      {allowTimeline ? (
+                        <Button size="sm" variant="outline" onClick={() => openTimeline(rail)}>
+                          {t("discover.seeTimeline")}
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
-
-                  {Array.isArray(item.children) && item.children.length > 0 && (
-                    <div className="grid sm:grid-cols-2 gap-2">
-                      {item.children.map((c) => (
-                        <div key={c.linkCode} className="rounded border p-2">
-                          <p className="text-xs font-medium truncate">{c.title || c.linkCode}</p>
-                          <p className="text-[11px] text-muted-foreground truncate">
-                            {c.creatorCode ? `@${c.creatorCode}` : c.linkCode}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">{t("common.ccu")} {fmtNum(c.ccu)}</p>
+                </CardHeader>
+                <CardContent>
+                  {isHomebar ? (
+                    <div className="grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-6">
+                      {rail.items.slice(0, 12).map((item) => (
+                        <div
+                          key={`${rail.panelName}:${item.rank}:${item.linkCode}`}
+                          className="group rounded-lg border bg-card overflow-hidden"
+                        >
+                          <div className="relative h-[130px] w-full bg-muted/40">
+                            {item.imageUrl ? (
+                              <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" />
+                            ) : (
+                              item.resolvedType === "collection" ? (
+                                <div className="h-full w-full bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 flex items-end p-3">
+                                  <p className="text-xs font-semibold text-white line-clamp-2">{item.title}</p>
+                                </div>
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
+                                  {item.isPlaceholder ? t("discover.resolving") : t("discover.noThumb")}
+                                </div>
+                              )
+                            )}
+                            <Badge className="absolute left-2 top-2 bg-black/70 text-white border-white/20">#{item.rank}</Badge>
+                            <Badge className="absolute right-2 top-2 bg-black/70 text-white border-white/20">CCU {fmtNum(item.ccu)}</Badge>
+                          </div>
+                          <div className="p-3 space-y-1">
+                            <p className="text-sm font-semibold leading-tight line-clamp-2">{item.title}</p>
+                            {item.publicSubtitle ? (
+                              <p className="text-xs text-muted-foreground truncate">{item.publicSubtitle}</p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">&nbsp;</p>
+                            )}
+                            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                              {showUptime ? (
+                                <span className="flex items-center gap-1"><Clock3 className="h-3 w-3" /> {fmtMinutes(item.uptimeMinutes)}</span>
+                              ) : <span />}
+                              {item.hoverIslandCode && <span className="opacity-0 group-hover:opacity-100 transition-opacity">{item.hoverIslandCode}</span>}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex gap-3 overflow-x-auto overscroll-contain pb-2" onWheelCapture={handleHorizontalWheel}>
+                      {railItems.slice(0, 30).map((item) => (
+                        <div
+                          key={`${rail.panelName}:${item.rank}:${item.linkCode}`}
+                          className={cn(
+                            "group w-[236px] min-w-[236px] rounded-lg border bg-card overflow-hidden",
+                            item.resolvedType === "collection" && "w-[280px] min-w-[280px]",
+                          )}
+                        >
+                          <div className="relative h-[132px] w-full bg-muted/40">
+                            {item.imageUrl ? (
+                              <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" />
+                            ) : (
+                              item.resolvedType === "collection" ? (
+                                <div className="h-full w-full bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 flex items-end p-3">
+                                  <p className="text-xs font-semibold text-white line-clamp-2">{item.title}</p>
+                                </div>
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
+                                  {item.isPlaceholder ? t("discover.resolving") : t("discover.noThumb")}
+                                </div>
+                              )
+                            )}
+                            {!isGameCollections ? (
+                              <Badge className="absolute left-2 top-2 bg-black/70 text-white border-white/20">#{item.rank}</Badge>
+                            ) : null}
+                            <Badge className="absolute right-2 top-2 bg-black/70 text-white border-white/20">CCU {fmtNum(item.ccu)}</Badge>
+                          </div>
+                          <div className="p-3 space-y-1">
+                            <p className="text-sm font-semibold leading-tight line-clamp-2">{item.title}</p>
+                            {item.publicSubtitle ? (
+                              <p className="text-xs text-muted-foreground truncate">{item.publicSubtitle}</p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">&nbsp;</p>
+                            )}
+                            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                              {showUptime ? (
+                                <span className="flex items-center gap-1"><Clock3 className="h-3 w-3" /> {fmtMinutes(item.uptimeMinutes)}</span>
+                              ) : <span />}
+                              {item.hoverIslandCode && <span className="opacity-0 group-hover:opacity-100 transition-opacity">{item.hoverIslandCode}</span>}
+                            </div>
+                            {item.resolvedType === "collection" && Number(item.childrenCount || 0) > 0 && (
+                              <p className="text-[11px] text-muted-foreground">{fmtNum(item.childrenCount)} linked islands</p>
+                            )}
+                            {item.isPlaceholder && (
+                              <p className="text-[11px] text-muted-foreground">{t("discover.resolvingReferences")}</p>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
 
+        {fixedExperienceRails.map((rail) => (
+          <Card key={`fixed-${rail.panelName}`} className="scroll-mt-24">
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <CardTitle className="text-base font-medium flex items-center gap-2">
+                    <Eye className="h-4 w-4" />
+                    {rail.panelDisplayName}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">Core Epic experiences (fixed set).</p>
+                </div>
+                <Badge variant="outline" className="font-mono">
+                  {fmtNum(rail.items.length)} {t("discover.items")}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-3 overflow-x-auto overscroll-contain pb-2" onWheelCapture={handleHorizontalWheel}>
+                {rail.items.slice(0, 30).map((item) => (
+                  <div
+                    key={`${rail.panelName}:${item.rank}:${item.linkCode}`}
+                    className={cn("group w-[236px] min-w-[236px] rounded-lg border bg-card overflow-hidden")}
+                  >
+                    <div className="relative h-[132px] w-full bg-muted/40">
+                      {item.imageUrl ? (
+                        <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
+                          {t("discover.noThumb")}
+                        </div>
+                      )}
+                      <Badge className="absolute left-2 top-2 bg-black/70 text-white border-white/20">#{item.rank}</Badge>
+                      <Badge className="absolute right-2 top-2 bg-black/70 text-white border-white/20">CCU {fmtNum(item.ccu)}</Badge>
+                    </div>
+                    <div className="p-3 space-y-1">
+                      <p className="text-sm font-semibold leading-tight line-clamp-2">{item.title}</p>
+                      <p className="text-xs text-muted-foreground">&nbsp;</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid xl:grid-cols-2 gap-6">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -380,19 +807,45 @@ export default function DiscoverLive() {
               <p className="text-sm text-muted-foreground">{t("discover.noDataFilter")}</p>
             ) : (
               emergingRows.map((r) => (
-                <div key={r.link_code} className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{r.title || r.link_code}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">
-                      {r.creator_code ? `@${r.creator_code}` : r.link_code_type} - {t("discover.firstSeen")} {new Date(r.first_seen_at).toLocaleString(locale)}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground truncate">
-                      6h: {fmtNum(r.minutes_6h)}m - 24h: {fmtNum(r.minutes_24h)}m - panels: {fmtNum(r.panels_24h)} - premium: {fmtNum(r.premium_panels_24h)} - reentries: {fmtNum(r.reentries_24h)}
-                    </p>
+                <div key={r.link_code} className="rounded-md border p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{r.title || t("discover.untitledIsland")}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {r.creator_code ? `@${r.creator_code}` : t("common.unknown")} - {t("discover.firstSeen")} {new Date(r.first_seen_at).toLocaleString(locale)}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        6h {fmtNum(r.minutes_6h)}m - 24h {fmtNum(r.minutes_24h)}m - {t("common.panels")} {fmtNum(r.panels_24h)}
+                      </p>
+                    </div>
+                    <Badge variant="secondary" className="font-mono">score {fmtNum(Math.round(r.score))}</Badge>
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs text-muted-foreground">{t("common.score")}</p>
-                    <p className="font-display font-semibold">{fmtNum(Math.round(r.score))}</p>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" /> {t("discover.pollution")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pollutionRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("common.noData")}</p>
+            ) : (
+              pollutionRows.map((r) => (
+                <div key={r.creator_code} className="rounded-md border p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">@{r.creator_code}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t("common.clusters")}: {fmtNum(r.duplicate_clusters_7d)} - {t("common.islands")}: {fmtNum(r.duplicate_islands_7d)} - {t("common.overMin")}: {fmtNum(r.duplicates_over_min)}
+                      </p>
+                    </div>
+                    <Badge variant="secondary" className="font-mono">{t("common.score")} {fmtNum(Math.round(r.spam_score))}</Badge>
                   </div>
                 </div>
               ))
@@ -401,44 +854,121 @@ export default function DiscoverLive() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4" /> {t("discover.pollution")}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid md:grid-cols-2 gap-4">
-          {pollutionRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("common.noData")}</p>
+      <Dialog open={timelineOpen} onOpenChange={setTimelineOpen}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>{t("discover.panelTimeline")} - {timelineData?.panelName || "-"}</DialogTitle>
+          </DialogHeader>
+
+          {timelineLoading ? (
+            <div className="py-12 flex items-center justify-center text-sm text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> {t("discover.loadingTimeline")}
+            </div>
+          ) : timelineError ? (
+            <div className="py-8 text-sm text-destructive">{timelineError}</div>
+          ) : !timelineData ? (
+            <div className="py-8 text-sm text-muted-foreground">{t("discover.noTimelineData")}</div>
           ) : (
-            pollutionRows.map((r) => (
-              <div key={r.creator_code} className="rounded-md border p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">@{r.creator_code}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {t("common.clusters")}: {fmtNum(r.duplicate_clusters_7d)} - {t("common.islands")}: {fmtNum(r.duplicate_islands_7d)} - {t("common.overMin")}: {fmtNum(r.duplicates_over_min)}
-                    </p>
-                  </div>
-                  <Badge variant="secondary" className="font-mono">
-                    {t("common.score")} {fmtNum(Math.round(r.spam_score))}
-                  </Badge>
-                </div>
-                {Array.isArray(r.sample_titles) && r.sample_titles.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {r.sample_titles.slice(0, 3).map((title, idx) => (
-                      <p key={idx} className="text-[11px] text-muted-foreground truncate">
-                        {title}
-                      </p>
-                    ))}
-                  </div>
-                )}
+            <div className="space-y-5">
+              <div className="text-xs text-muted-foreground">
+                {timelineData.from ? new Date(timelineData.from).toLocaleString(locale) : "-"} - {" "}
+                {timelineData.to ? new Date(timelineData.to).toLocaleString(locale) : "-"}
               </div>
-            ))
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2"><Activity className="h-4 w-4" /> {t("discover.ccu24h")}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={timelineChartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                          <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Area type="monotone" dataKey="ccu" stroke="#14b8a6" fill="#14b8a633" strokeWidth={2} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium">{t("discover.exposureMinutes24h")}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={timelineChartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                          <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="minutes_exposed" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">{t("discover.topItemsWindow")}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 max-h-[280px] overflow-auto">
+                  {timelineData.sample_top_items.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t("discover.noSampledItems")}</p>
+                  ) : (
+                    timelineData.sample_top_items.map((item, idx) => (
+                      <div key={`${item.link_code}:${idx}`} className="rounded-md border p-2 flex items-center gap-3">
+                        <div className="h-10 w-16 rounded overflow-hidden bg-muted/40 shrink-0">
+                          {item.image_url ? (
+                            <img src={item.image_url} alt={item.title} className="h-full w-full object-cover" loading="lazy" />
+                          ) : null}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{item.title}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {item.creator_code ? `@${item.creator_code}` : t("discover.collection")} - {fmtNum(item.minutes_exposed)} min
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
+
+      {initialOverlayVisible && (
+        <div className="fixed inset-0 z-[100] bg-background/70 backdrop-blur-sm flex items-center justify-center">
+          <Card className="w-[240px]">
+            <CardContent className="pt-6 pb-6 flex flex-col items-center gap-3">
+              <div
+                className="relative h-24 w-24 rounded-full"
+                style={{
+                  background: `conic-gradient(hsl(var(--primary)) ${Math.round(
+                    initialOverlayProgress * 3.6,
+                  )}deg, hsl(var(--muted)) 0deg)`,
+                }}
+              >
+                <div className="absolute inset-[7px] rounded-full bg-background flex items-center justify-center">
+                  <span className="text-xl font-semibold tabular-nums">
+                    {Math.round(initialOverlayProgress)}%
+                  </span>
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground">{t("discover.initialLoading")}</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
-
