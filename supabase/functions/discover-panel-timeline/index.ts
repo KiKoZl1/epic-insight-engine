@@ -7,6 +7,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const PANEL_INTEL_STALE_MINUTES = 20;
+
 function json(res: unknown, status = 200) {
   return new Response(JSON.stringify(res), {
     status,
@@ -18,6 +20,11 @@ function mustEnv(key: string): string {
   const v = Deno.env.get(key);
   if (!v) throw new Error(`Missing env var: ${key}`);
   return v;
+}
+
+function asNum(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function floorToHour(date: Date): Date {
@@ -42,6 +49,108 @@ function overlapMinutes(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): num
   return (end - start) / 60000;
 }
 
+function clampWindowDays(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 14;
+  return Math.min(60, Math.max(1, Math.floor(n)));
+}
+
+function maybeNum(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parsePanelRows(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const r = row as Record<string, unknown>;
+      const panelName = String(r.panel_name || "").trim();
+      if (!panelName) return null;
+      return {
+        panel_name: panelName,
+        count: asNum(r.count),
+        share_pct: maybeNum(r.share_pct),
+        median_gap_minutes: maybeNum(r.median_gap_minutes),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+function isSnapshotStale(updatedAt: string | null | undefined): boolean {
+  const ts = updatedAt ? Date.parse(updatedAt) : NaN;
+  if (!Number.isFinite(ts)) return true;
+  return Date.now() - ts > PANEL_INTEL_STALE_MINUTES * 60_000;
+}
+
+function snapshotNeedsUpgrade(snapshot: any): boolean {
+  if (!snapshot || typeof snapshot !== "object") return true;
+  const payload = snapshot.payload_json;
+  if (!payload || typeof payload !== "object") return true;
+  const p = payload as Record<string, unknown>;
+  return (
+    p.transitions_out_total === undefined ||
+    p.transitions_in_total === undefined ||
+    p.attempts_avg_per_island === undefined ||
+    p.reentry_48h_pct === undefined
+  );
+}
+
+function buildPanelIntel(snapshot: any, fallbackWindowDays: number) {
+  if (!snapshot) return null;
+
+  const payload = (snapshot.payload_json && typeof snapshot.payload_json === "object")
+    ? snapshot.payload_json
+    : {};
+
+  return {
+    as_of: String(snapshot.as_of || ""),
+    window_days: Number(snapshot.window_days || fallbackWindowDays),
+    sample_stints: asNum(snapshot.sample_stints),
+    sample_closed_stints: asNum(snapshot.sample_closed_stints),
+    active_maps_now: asNum(snapshot.active_maps_now),
+    panel_avg_ccu: maybeNum(payload.panel_avg_ccu),
+    avg_exposure_minutes_per_stint: maybeNum(payload.avg_exposure_minutes_per_stint),
+    avg_exposure_minutes_per_map: maybeNum(payload.avg_exposure_minutes_per_map),
+    entries_24h: asNum(payload.entries_24h),
+    exits_24h: asNum(payload.exits_24h),
+    replacements_24h: asNum(payload.replacements_24h),
+    ccu_bands: {
+      ruim_lt: maybeNum(payload?.ccu_bands?.ruim_lt),
+      bom_gte: maybeNum(payload?.ccu_bands?.bom_gte),
+      excelente_gte: maybeNum(payload?.ccu_bands?.excelente_gte),
+    },
+    exposure_bands_minutes: {
+      ruim_lt: maybeNum(payload?.exposure_bands_minutes?.ruim_lt),
+      bom_gte: maybeNum(payload?.exposure_bands_minutes?.bom_gte),
+      excelente_gte: maybeNum(payload?.exposure_bands_minutes?.excelente_gte),
+    },
+    removal_risk_ccu_floor: maybeNum(payload.removal_risk_ccu_floor),
+    typical_exit_minutes: maybeNum(payload.typical_exit_minutes),
+    keep_alive_targets: {
+      ccu_min: maybeNum(payload?.keep_alive_targets?.ccu_min),
+      minutes_min: maybeNum(payload?.keep_alive_targets?.minutes_min),
+    },
+    transitions_out_total: asNum(payload.transitions_out_total),
+    top_next_panels: parsePanelRows(payload.top_next_panels),
+    transitions_in_total: asNum(payload.transitions_in_total),
+    top_prev_panels: parsePanelRows(payload.top_prev_panels),
+    entry_prev_ccu_p50: maybeNum(payload.entry_prev_ccu_p50),
+    entry_prev_ccu_p80: maybeNum(payload.entry_prev_ccu_p80),
+    entry_prev_gap_minutes_p50: maybeNum(payload.entry_prev_gap_minutes_p50),
+    attempts_avg_per_island: maybeNum(payload.attempts_avg_per_island),
+    attempts_p50_per_island: maybeNum(payload.attempts_p50_per_island),
+    islands_single_attempt_pct: maybeNum(payload.islands_single_attempt_pct),
+    islands_multi_attempt_pct: maybeNum(payload.islands_multi_attempt_pct),
+    reentry_48h_pct: maybeNum(payload.reentry_48h_pct),
+    abandon_48h_pct: maybeNum(payload.abandon_48h_pct),
+    attempts_before_abandon_avg: maybeNum(payload.attempts_before_abandon_avg),
+    attempts_before_abandon_p50: maybeNum(payload.attempts_before_abandon_p50),
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -59,6 +168,7 @@ serve(async (req) => {
     const surfaceName = String(body.surfaceName || "CreativeDiscoverySurface_Frontend");
     const panelName = String(body.panelName || "").trim();
     const hours = Math.max(1, Math.min(168, Number(body.hours ?? 24)));
+    const windowDays = clampWindowDays(body.windowDays);
 
     if (!panelName) return json({ success: false, error: "Missing panelName" }, 400);
 
@@ -191,6 +301,35 @@ serve(async (req) => {
       };
     });
 
+    const readSnapshot = async () => {
+      const { data, error } = await supabase
+        .from("discovery_panel_intel_snapshot")
+        .select("as_of,window_days,payload_json,sample_stints,sample_closed_stints,active_maps_now,confidence,updated_at")
+        .eq("target_id", targetId)
+        .eq("panel_name", panelName)
+        .eq("window_days", windowDays)
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      return data as any;
+    };
+
+    let snapshot = await readSnapshot();
+
+    if (!snapshot || isSnapshotStale(String(snapshot.updated_at || snapshot.as_of || "")) || snapshotNeedsUpgrade(snapshot)) {
+      const { error: recalcErr } = await supabase.rpc("compute_discovery_panel_intel_snapshot", {
+        p_target_id: targetId,
+        p_window_days: windowDays,
+        p_panel_name: panelName,
+      });
+
+      if (!recalcErr) {
+        snapshot = await readSnapshot();
+      }
+    }
+
+    const panelIntel = buildPanelIntel(snapshot, windowDays);
+
     return json({
       success: true,
       region,
@@ -202,6 +341,7 @@ serve(async (req) => {
       hours,
       series,
       sample_top_items: sampleTopItems,
+      panel_intel: panelIntel,
     });
   } catch (e) {
     return json({ success: false, error: e instanceof Error ? e.message : String(e) }, 500);

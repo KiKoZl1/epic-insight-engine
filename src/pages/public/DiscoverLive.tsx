@@ -129,12 +129,47 @@ type TimelineTopItem = {
   minutes_exposed: number;
 };
 
+type PanelIntel = {
+  as_of: string;
+  window_days: number;
+  sample_stints: number;
+  sample_closed_stints: number;
+  active_maps_now: number;
+  panel_avg_ccu: number | null;
+  avg_exposure_minutes_per_stint: number | null;
+  avg_exposure_minutes_per_map: number | null;
+  entries_24h: number;
+  exits_24h: number;
+  replacements_24h: number;
+  ccu_bands: { ruim_lt: number | null; bom_gte: number | null; excelente_gte: number | null };
+  exposure_bands_minutes: { ruim_lt: number | null; bom_gte: number | null; excelente_gte: number | null };
+  removal_risk_ccu_floor: number | null;
+  typical_exit_minutes: number | null;
+  keep_alive_targets: { ccu_min: number | null; minutes_min: number | null };
+  transitions_out_total: number;
+  top_next_panels: Array<{ panel_name: string; count: number; share_pct: number | null; median_gap_minutes: number | null }>;
+  transitions_in_total: number;
+  top_prev_panels: Array<{ panel_name: string; count: number; share_pct: number | null; median_gap_minutes: number | null }>;
+  entry_prev_ccu_p50: number | null;
+  entry_prev_ccu_p80: number | null;
+  entry_prev_gap_minutes_p50: number | null;
+  attempts_avg_per_island: number | null;
+  attempts_p50_per_island: number | null;
+  islands_single_attempt_pct: number | null;
+  islands_multi_attempt_pct: number | null;
+  reentry_48h_pct: number | null;
+  abandon_48h_pct: number | null;
+  attempts_before_abandon_avg: number | null;
+  attempts_before_abandon_p50: number | null;
+};
+
 type PanelTimelinePayload = {
   panelName: string;
   from: string;
   to: string;
   series: TimelineSeriesPoint[];
   sample_top_items: TimelineTopItem[];
+  panel_intel: PanelIntel | null;
 };
 
 const DISCOVERY_SURFACE = "CreativeDiscoverySurface_Frontend";
@@ -159,6 +194,11 @@ function fmtMinutes(total: number | null | undefined): string {
     return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
   }
   return `${m}m`;
+}
+
+function fmtPct(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(Number(v))) return "-";
+  return `${Number(v).toFixed(1)}%`;
 }
 
 function parseIsoToMs(value: string | null | undefined): number | null {
@@ -466,6 +506,7 @@ export default function DiscoverLive() {
           surfaceName: DISCOVERY_SURFACE,
           panelName: rail.panelName,
           hours: 24,
+          windowDays: 14,
         },
       });
 
@@ -481,6 +522,7 @@ export default function DiscoverLive() {
         to?: string;
         series?: TimelineSeriesPoint[];
         sample_top_items?: TimelineTopItem[];
+        panel_intel?: PanelIntel | null;
       };
 
       setTimelineData({
@@ -489,6 +531,7 @@ export default function DiscoverLive() {
         to: String(payload?.to || ""),
         series: Array.isArray(payload?.series) ? payload.series : [],
         sample_top_items: Array.isArray(payload?.sample_top_items) ? payload.sample_top_items : [],
+        panel_intel: (payload?.panel_intel && typeof payload.panel_intel === "object") ? payload.panel_intel : null,
       });
       setTimelineLoading(false);
     },
@@ -924,25 +967,205 @@ export default function DiscoverLive() {
       </div>
 
       <Dialog open={timelineOpen} onOpenChange={setTimelineOpen}>
-        <DialogContent className="max-w-5xl">
-          <DialogHeader>
+        <DialogContent className="w-[96vw] max-w-[1200px] h-[92vh] p-0 gap-0 overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b bg-background shrink-0">
             <DialogTitle>{t("discover.panelTimeline")} - {timelineData?.panelName || "-"}</DialogTitle>
           </DialogHeader>
 
-          {timelineLoading ? (
-            <div className="py-12 flex items-center justify-center text-sm text-muted-foreground gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" /> {t("discover.loadingTimeline")}
-            </div>
-          ) : timelineError ? (
-            <div className="py-8 text-sm text-destructive">{timelineError}</div>
-          ) : !timelineData ? (
-            <div className="py-8 text-sm text-muted-foreground">{t("discover.noTimelineData")}</div>
-          ) : (
-            <div className="space-y-5">
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            {timelineLoading ? (
+              <div className="py-12 flex items-center justify-center text-sm text-muted-foreground gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> {t("discover.loadingTimeline")}
+              </div>
+            ) : timelineError ? (
+              <div className="py-8 text-sm text-destructive">{timelineError}</div>
+            ) : !timelineData ? (
+              <div className="py-8 text-sm text-muted-foreground">{t("discover.noTimelineData")}</div>
+            ) : (
+              <div className="space-y-5">
               <div className="text-xs text-muted-foreground">
                 {timelineData.from ? new Date(timelineData.from).toLocaleString(locale) : "-"} - {" "}
                 {timelineData.to ? new Date(timelineData.to).toLocaleString(locale) : "-"}
               </div>
+
+              {timelineData.panel_intel ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">{t("discover.panelIntelTitle")}</h3>
+                  </div>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.panelAvgCcu")}</p>
+                        <p className="text-lg font-semibold">{fmtNum(timelineData.panel_intel.panel_avg_ccu)}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.avgExposurePerEntry")}</p>
+                        <p className="text-lg font-semibold">{fmtMinutes(timelineData.panel_intel.avg_exposure_minutes_per_stint)}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.entriesExits24h")}</p>
+                        <p className="text-sm font-semibold">
+                          {timelineData.panel_intel.entries_24h} {t("discover.entries")} / {timelineData.panel_intel.exits_24h} {t("discover.exits")}
+                        </p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.replacements24h")}</p>
+                        <p className="text-lg font-semibold">{fmtNum(timelineData.panel_intel.replacements_24h)}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-3">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">{t("discover.ccuBands")}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-1 text-xs">
+                        <p>{t("discover.bandPoor", { value: fmtNum(timelineData.panel_intel.ccu_bands?.ruim_lt) })}</p>
+                        <p>{t("discover.bandGood", { value: fmtNum(timelineData.panel_intel.ccu_bands?.bom_gte) })}</p>
+                        <p>{t("discover.bandExcellent", { value: fmtNum(timelineData.panel_intel.ccu_bands?.excelente_gte) })}</p>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">{t("discover.exposureBands")}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-1 text-xs">
+                        <p>{t("discover.bandPoor", { value: fmtMinutes(timelineData.panel_intel.exposure_bands_minutes?.ruim_lt) })}</p>
+                        <p>{t("discover.bandGood", { value: fmtMinutes(timelineData.panel_intel.exposure_bands_minutes?.bom_gte) })}</p>
+                        <p>{t("discover.bandExcellent", { value: fmtMinutes(timelineData.panel_intel.exposure_bands_minutes?.excelente_gte) })}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">{t("discover.keepAliveSignal")}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {timelineData.panel_intel.keep_alive_targets?.ccu_min || timelineData.panel_intel.keep_alive_targets?.minutes_min ? (
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div className="rounded-md border p-3">
+                            <p className="text-[11px] text-muted-foreground">{t("discover.keepAliveCcuMin")}</p>
+                            <p className="text-lg font-semibold">{fmtNum(timelineData.panel_intel.keep_alive_targets?.ccu_min)}</p>
+                          </div>
+                          <div className="rounded-md border p-3">
+                            <p className="text-[11px] text-muted-foreground">{t("discover.keepAliveMinutesMin")}</p>
+                            <p className="text-lg font-semibold">{fmtMinutes(timelineData.panel_intel.keep_alive_targets?.minutes_min)}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">{t("discover.keepAliveNoSignal")}</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <div className="grid lg:grid-cols-3 gap-3">
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.transitionsOutTotal")}</p>
+                        <p className="text-lg font-semibold">{fmtNum(timelineData.panel_intel.transitions_out_total)}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.transitionsInTotal")}</p>
+                        <p className="text-lg font-semibold">{fmtNum(timelineData.panel_intel.transitions_in_total)}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.entryPrevGapP50")}</p>
+                        <p className="text-lg font-semibold">{fmtMinutes(timelineData.panel_intel.entry_prev_gap_minutes_p50)}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-3">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">{t("discover.topNextPanels")}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {timelineData.panel_intel.top_next_panels?.length ? (
+                          timelineData.panel_intel.top_next_panels.map((row, idx) => (
+                            <div key={`next-${row.panel_name}-${idx}`} className="rounded-md border px-3 py-2 text-xs grid grid-cols-12 gap-2 items-center">
+                              <p className="col-span-5 font-medium truncate">{row.panel_name}</p>
+                              <p className="col-span-2 text-right">{fmtNum(row.count)}</p>
+                              <p className="col-span-2 text-right">{fmtPct(row.share_pct)}</p>
+                              <p className="col-span-3 text-right">{fmtMinutes(row.median_gap_minutes)}</p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground">{t("discover.noDataFilter")}</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">{t("discover.topSourcePanels")}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {timelineData.panel_intel.top_prev_panels?.length ? (
+                          timelineData.panel_intel.top_prev_panels.map((row, idx) => (
+                            <div key={`prev-${row.panel_name}-${idx}`} className="rounded-md border px-3 py-2 text-xs grid grid-cols-12 gap-2 items-center">
+                              <p className="col-span-5 font-medium truncate">{row.panel_name}</p>
+                              <p className="col-span-2 text-right">{fmtNum(row.count)}</p>
+                              <p className="col-span-2 text-right">{fmtPct(row.share_pct)}</p>
+                              <p className="col-span-3 text-right">{fmtMinutes(row.median_gap_minutes)}</p>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground">{t("discover.noDataFilter")}</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.attemptsAvgPerIsland")}</p>
+                        <p className="text-lg font-semibold">{timelineData.panel_intel.attempts_avg_per_island?.toFixed(2) ?? "-"}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.attemptsP50PerIsland")}</p>
+                        <p className="text-lg font-semibold">{timelineData.panel_intel.attempts_p50_per_island?.toFixed(2) ?? "-"}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.reentry48hPct")}</p>
+                        <p className="text-lg font-semibold">{fmtPct(timelineData.panel_intel.reentry_48h_pct)}</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-[11px] text-muted-foreground">{t("discover.abandon48hPct")}</p>
+                        <p className="text-lg font-semibold">{fmtPct(timelineData.panel_intel.abandon_48h_pct)}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-sm text-muted-foreground">{t("discover.panelIntelInsufficient")}</p>
+                  </CardContent>
+                </Card>
+              )}
 
               <div className="grid lg:grid-cols-2 gap-4">
                 <Card>
@@ -1023,8 +1246,9 @@ export default function DiscoverLive() {
                   )}
                 </CardContent>
               </Card>
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
