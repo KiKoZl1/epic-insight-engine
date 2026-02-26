@@ -15,6 +15,7 @@ import Home from "./pages/public/Home";
 import ReportsList from "./pages/public/ReportsList";
 import ReportView from "./pages/public/ReportView";
 import DiscoverLive from "./pages/public/DiscoverLive";
+import IslandPage from "./pages/public/IslandPage";
 import Auth from "./pages/Auth";
 
 // Client pages
@@ -47,6 +48,7 @@ const App = () => (
             <Route element={<SmartLayout />}>
               <Route path="/" element={<Home />} />
               <Route path="/discover" element={<DiscoverLive />} />
+              <Route path="/island" element={<IslandPage />} />
               <Route path="/reports" element={<ReportsList />} />
               <Route path="/reports/:slug" element={<ReportView />} />
             </Route>

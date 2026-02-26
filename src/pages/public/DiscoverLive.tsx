@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import {
   Area,
   AreaChart,
@@ -184,6 +185,7 @@ function sortByFixedOrder<T extends { panelKey?: string; panelName?: string; dis
 
 export default function DiscoverLive() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const locale = i18n.language === "pt-BR" ? "pt-BR" : "en-US";
 
   const [loading, setLoading] = useState(true);
@@ -516,6 +518,19 @@ export default function DiscoverLive() {
     el.scrollLeft += delta;
   }, []);
 
+  const getIslandCode = useCallback((item: { hoverIslandCode?: string | null; linkCode?: string | null } | null | undefined) => {
+    const hover = String(item?.hoverIslandCode || "").trim();
+    if (isIslandCode(hover)) return hover;
+    const link = String(item?.linkCode || "").trim();
+    if (isIslandCode(link)) return link;
+    return null;
+  }, []);
+
+  const openIsland = useCallback((islandCode: string | null) => {
+    if (!islandCode) return;
+    navigate(`/island?code=${encodeURIComponent(islandCode)}`);
+  }, [navigate]);
+
   return (
     <div className="px-6 py-10 max-w-[1380px] mx-auto space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -565,8 +580,21 @@ export default function DiscoverLive() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 md:grid-cols-3">
-            {highlights.map((highlight) => (
-              <div key={highlight.key} className="rounded-xl border overflow-hidden bg-card">
+            {highlights.map((highlight) => {
+              const islandCode = getIslandCode(highlight.item);
+              const clickable = Boolean(islandCode);
+              return (
+              <button
+                key={highlight.key}
+                type="button"
+                onClick={() => openIsland(islandCode)}
+                disabled={!clickable}
+                className={cn(
+                  "rounded-xl border overflow-hidden bg-card text-left w-full",
+                  clickable && "cursor-pointer hover:border-primary/50 transition-colors",
+                  !clickable && "cursor-default",
+                )}
+              >
                 <div className="relative h-[180px] bg-muted/40">
                   {highlight.item?.imageUrl ? (
                     <img src={highlight.item.imageUrl} alt={highlight.item.title} className="h-full w-full object-cover" loading="lazy" />
@@ -589,8 +617,8 @@ export default function DiscoverLive() {
                 <div className="px-3 py-2 text-[11px] text-muted-foreground flex items-center">
                   <span>{highlight.item?.publicSubtitle || "-"}</span>
                 </div>
-              </div>
-            ))}
+              </button>
+            )})}
           </div>
         </CardContent>
       </Card>
@@ -651,10 +679,20 @@ export default function DiscoverLive() {
                 <CardContent>
                   {isHomebar ? (
                     <div className="grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-6">
-                      {rail.items.slice(0, 12).map((item) => (
-                        <div
+                      {rail.items.slice(0, 12).map((item) => {
+                        const islandCode = getIslandCode(item);
+                        const clickable = Boolean(islandCode);
+                        return (
+                        <button
                           key={`${rail.panelName}:${item.rank}:${item.linkCode}`}
-                          className="group rounded-lg border bg-card overflow-hidden"
+                          type="button"
+                          onClick={() => openIsland(islandCode)}
+                          disabled={!clickable}
+                          className={cn(
+                            "group rounded-lg border bg-card overflow-hidden text-left",
+                            clickable && "cursor-pointer hover:border-primary/50 transition-colors",
+                            !clickable && "cursor-default",
+                          )}
                         >
                           <div className="relative h-[130px] w-full bg-muted/40">
                             {item.imageUrl ? (
@@ -687,17 +725,25 @@ export default function DiscoverLive() {
                               {item.hoverIslandCode && <span className="opacity-0 group-hover:opacity-100 transition-opacity">{item.hoverIslandCode}</span>}
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        </button>
+                      )})}
                     </div>
                   ) : (
                     <div className="flex gap-3 overflow-x-auto overscroll-contain pb-2" onWheelCapture={handleHorizontalWheel}>
-                      {railItems.slice(0, 30).map((item) => (
-                        <div
+                      {railItems.slice(0, 30).map((item) => {
+                        const islandCode = getIslandCode(item);
+                        const clickable = Boolean(islandCode);
+                        return (
+                        <button
                           key={`${rail.panelName}:${item.rank}:${item.linkCode}`}
+                          type="button"
+                          onClick={() => openIsland(islandCode)}
+                          disabled={!clickable}
                           className={cn(
-                            "group w-[236px] min-w-[236px] rounded-lg border bg-card overflow-hidden",
+                            "group w-[236px] min-w-[236px] rounded-lg border bg-card overflow-hidden text-left",
                             item.resolvedType === "collection" && "w-[280px] min-w-[280px]",
+                            clickable && "cursor-pointer hover:border-primary/50 transition-colors",
+                            !clickable && "cursor-default",
                           )}
                         >
                           <div className="relative h-[132px] w-full bg-muted/40">
@@ -739,8 +785,8 @@ export default function DiscoverLive() {
                               <p className="text-[11px] text-muted-foreground">{t("discover.resolvingReferences")}</p>
                             )}
                           </div>
-                        </div>
-                      ))}
+                        </button>
+                      )})}
                     </div>
                   )}
                 </CardContent>
@@ -767,10 +813,20 @@ export default function DiscoverLive() {
             </CardHeader>
             <CardContent>
               <div className="flex gap-3 overflow-x-auto overscroll-contain pb-2" onWheelCapture={handleHorizontalWheel}>
-                {rail.items.slice(0, 30).map((item) => (
-                  <div
+                {rail.items.slice(0, 30).map((item) => {
+                  const islandCode = getIslandCode(item);
+                  const clickable = Boolean(islandCode);
+                  return (
+                  <button
                     key={`${rail.panelName}:${item.rank}:${item.linkCode}`}
-                    className={cn("group w-[236px] min-w-[236px] rounded-lg border bg-card overflow-hidden")}
+                    type="button"
+                    onClick={() => openIsland(islandCode)}
+                    disabled={!clickable}
+                    className={cn(
+                      "group w-[236px] min-w-[236px] rounded-lg border bg-card overflow-hidden text-left",
+                      clickable && "cursor-pointer hover:border-primary/50 transition-colors",
+                      !clickable && "cursor-default",
+                    )}
                   >
                     <div className="relative h-[132px] w-full bg-muted/40">
                       {item.imageUrl ? (
@@ -787,8 +843,8 @@ export default function DiscoverLive() {
                       <p className="text-sm font-semibold leading-tight line-clamp-2">{item.title}</p>
                       <p className="text-xs text-muted-foreground">&nbsp;</p>
                     </div>
-                  </div>
-                ))}
+                  </button>
+                )})}
               </div>
             </CardContent>
           </Card>
@@ -806,8 +862,21 @@ export default function DiscoverLive() {
             {emergingRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t("discover.noDataFilter")}</p>
             ) : (
-              emergingRows.map((r) => (
-                <div key={r.link_code} className="rounded-md border p-3">
+              emergingRows.map((r) => {
+                const islandCode = isIslandCode(String(r.link_code || "")) ? String(r.link_code) : null;
+                const clickable = Boolean(islandCode);
+                return (
+                <button
+                  key={r.link_code}
+                  type="button"
+                  onClick={() => openIsland(islandCode)}
+                  disabled={!clickable}
+                  className={cn(
+                    "rounded-md border p-3 w-full text-left",
+                    clickable && "cursor-pointer hover:border-primary/50 transition-colors",
+                    !clickable && "cursor-default",
+                  )}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{r.title || t("discover.untitledIsland")}</p>
@@ -820,8 +889,8 @@ export default function DiscoverLive() {
                     </div>
                     <Badge variant="secondary" className="font-mono">score {fmtNum(Math.round(r.score))}</Badge>
                   </div>
-                </div>
-              ))
+                </button>
+              )})
             )}
           </CardContent>
         </Card>
@@ -923,8 +992,21 @@ export default function DiscoverLive() {
                   {timelineData.sample_top_items.length === 0 ? (
                     <p className="text-sm text-muted-foreground">{t("discover.noSampledItems")}</p>
                   ) : (
-                    timelineData.sample_top_items.map((item, idx) => (
-                      <div key={`${item.link_code}:${idx}`} className="rounded-md border p-2 flex items-center gap-3">
+                    timelineData.sample_top_items.map((item, idx) => {
+                      const islandCode = isIslandCode(String(item.link_code || "")) ? String(item.link_code) : null;
+                      const clickable = Boolean(islandCode);
+                      return (
+                      <button
+                        key={`${item.link_code}:${idx}`}
+                        type="button"
+                        onClick={() => openIsland(islandCode)}
+                        disabled={!clickable}
+                        className={cn(
+                          "rounded-md border p-2 flex items-center gap-3 w-full text-left",
+                          clickable && "cursor-pointer hover:border-primary/50 transition-colors",
+                          !clickable && "cursor-default",
+                        )}
+                      >
                         <div className="h-10 w-16 rounded overflow-hidden bg-muted/40 shrink-0">
                           {item.image_url ? (
                             <img src={item.image_url} alt={item.title} className="h-full w-full object-cover" loading="lazy" />
@@ -936,8 +1018,8 @@ export default function DiscoverLive() {
                             {item.creator_code ? `@${item.creator_code}` : t("discover.collection")} - {fmtNum(item.minutes_exposed)} min
                           </p>
                         </div>
-                      </div>
-                    ))
+                      </button>
+                    )})
                   )}
                 </CardContent>
               </Card>
