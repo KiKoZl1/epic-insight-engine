@@ -77,14 +77,16 @@ serve(async (req) => {
 
     const since24h = new Date(Date.now() - 24 * 3600_000).toISOString();
 
-    const [gen24hRes, errors24hRes, costTodayRes, clustersRes, activeModelsRes, latestRunsRes, latestTrainingRes, configRes, heartbeatRes] = await Promise.all([
-      service.from("tgis_generation_log").select("id", { count: "exact", head: true }).gte("created_at", since24h),
-      service.from("tgis_generation_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).in("status", ["failed", "blocked", "quota_exceeded"]),
+    const [gen24hRes, errors24hRes, costTodayRes, clustersRes, activeModelsRes, latestRunsRes, latestTrainingRes, runningTrainingRes, queuedTrainingRes, configRes, heartbeatRes] = await Promise.all([
+      service.from("tgis_generation_log").select("id", { count: "planned", head: true }).gte("created_at", since24h),
+      service.from("tgis_generation_log").select("id", { count: "planned", head: true }).gte("created_at", since24h).in("status", ["failed", "blocked", "quota_exceeded"]),
       service.from("tgis_cost_usage_daily").select("day,total_cost_usd").eq("day", new Date().toISOString().slice(0, 10)),
       service.from("tgis_cluster_registry").select("cluster_id,is_active").order("cluster_id", { ascending: true }),
-      service.from("tgis_model_versions").select("id", { count: "exact", head: true }).eq("status", "active"),
-      service.from("tgis_dataset_runs").select("id,run_type,status,created_at,started_at,ended_at,summary_json,error_text").order("created_at", { ascending: false }).limit(10),
-      service.from("tgis_training_runs").select("id,cluster_id,status,run_mode,target_version,created_at,started_at,ended_at,error_text").order("created_at", { ascending: false }).limit(10),
+      service.from("tgis_model_versions").select("id", { count: "planned", head: true }).eq("status", "active"),
+      service.from("tgis_dataset_runs").select("id,run_type,status,created_at,started_at,ended_at,summary_json,error_text").order("created_at", { ascending: false }).limit(6),
+      service.from("tgis_training_runs").select("id,cluster_id,status,run_mode,target_version,training_provider,fal_request_id,provider_status,progress_pct,eta_seconds,elapsed_seconds,estimated_cost_usd,status_polled_at,created_at,started_at,ended_at,error_text").order("created_at", { ascending: false }).limit(10),
+      service.from("tgis_training_runs").select("id,cluster_id,status,run_mode,target_version,training_provider,fal_request_id,provider_status,progress_pct,eta_seconds,elapsed_seconds,estimated_cost_usd,status_polled_at,created_at,started_at,error_text").eq("status", "running").order("created_at", { ascending: false }).limit(20),
+      service.from("tgis_training_runs").select("id", { count: "planned", head: true }).eq("status", "queued"),
       service.from("tgis_runtime_config").select("*").eq("config_key", "default").limit(1).maybeSingle(),
       service.from("tgis_worker_heartbeat").select("worker_host,worker_source,ts,cpu_pct,mem_pct,disk_pct,queue_depth").order("ts", { ascending: false }).limit(1).maybeSingle(),
     ]);
@@ -101,10 +103,13 @@ serve(async (req) => {
         clusters_total: (clustersRes.data || []).length,
         clusters_active: activeClusters,
         active_models: activeModelsRes.count || 0,
+        training_running: (runningTrainingRes.data || []).length,
+        training_queued: queuedTrainingRes.count || 0,
       },
       runtime_config: configRes.data || null,
       dataset_recent: latestRunsRes.data || [],
       training_recent: latestTrainingRes.data || [],
+      training_running: runningTrainingRes.data || [],
       worker_latest: heartbeatRes.data || null,
       as_of: new Date().toISOString(),
     });

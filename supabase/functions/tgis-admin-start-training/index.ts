@@ -88,12 +88,27 @@ serve(async (req) => {
     const clusterId = body?.clusterId == null ? null : Number(body.clusterId);
     const runMode = String(body?.runMode || "manual").trim().toLowerCase();
     const dryRun = Boolean(body?.dryRun === true);
+    const stepsOverride = body?.stepsOverride == null ? null : Number(body.stepsOverride);
+    const learningRateOverride = body?.learningRateOverride == null ? null : Number(body.learningRateOverride);
+    const maxImagesOverride = body?.maxImagesOverride == null ? null : Number(body.maxImagesOverride);
 
     if (!["manual", "scheduled", "dry_run"].includes(runMode)) {
       return json({ success: false, error: "invalid_runMode" }, 400);
     }
     if (clusterId != null && !Number.isFinite(clusterId)) {
       return json({ success: false, error: "invalid_clusterId" }, 400);
+    }
+    if (clusterId == null) {
+      return json({ success: false, error: "bulk_queue_disabled_require_clusterId" }, 400);
+    }
+    if (stepsOverride != null && (!Number.isFinite(stepsOverride) || stepsOverride <= 0)) {
+      return json({ success: false, error: "invalid_stepsOverride" }, 400);
+    }
+    if (learningRateOverride != null && (!Number.isFinite(learningRateOverride) || learningRateOverride <= 0)) {
+      return json({ success: false, error: "invalid_learningRateOverride" }, 400);
+    }
+    if (maxImagesOverride != null && (!Number.isFinite(maxImagesOverride) || maxImagesOverride <= 0)) {
+      return json({ success: false, error: "invalid_maxImagesOverride" }, 400);
     }
 
     const { data: cfgRows, error: cfgErr } = await service
@@ -107,42 +122,32 @@ serve(async (req) => {
       return json({ success: false, error: "training_disabled_in_runtime_config" }, 409);
     }
 
-    const targetVersion = String(
-      body?.targetVersion || `v${new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 12)}`,
-    );
+    const now = new Date();
+    const yyyy = String(now.getUTCFullYear());
+    const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(now.getUTCDate()).padStart(2, "0");
+    const hh = String(now.getUTCHours()).padStart(2, "0");
+    const mi = String(now.getUTCMinutes()).padStart(2, "0");
+    const autoVersion = `v${yyyy}${mm}${dd}_${hh}${mi}${clusterId != null ? `_c${clusterId}` : ""}`;
+    const targetVersion = String(body?.targetVersion || autoVersion);
 
-    let payloadRows: Array<Record<string, unknown>> = [];
-    if (clusterId == null) {
-      const { data: clusterRows, error: clusterErr } = await service
-        .from("tgis_cluster_registry")
-        .select("cluster_id")
-        .eq("is_active", true)
-        .order("cluster_id", { ascending: true });
-      if (clusterErr) throw new Error(clusterErr.message);
-      const clusterIds = (clusterRows || []).map((r: any) => Number(r.cluster_id)).filter((n: number) => Number.isFinite(n));
-      if (!clusterIds.length) return json({ success: false, error: "no_active_clusters" }, 409);
-      payloadRows = clusterIds.map((cid) => ({
-        cluster_id: cid,
-        requested_by: auth.userId,
-        status: "queued",
-        run_mode: dryRun ? "dry_run" : runMode,
-        model_base: "Tongyi-MAI/Z-Image-Turbo",
-        target_version: targetVersion,
-        quality_gate_json: {},
-        result_json: { source: "tgis-admin-start-training", dryRun },
-      }));
-    } else {
-      payloadRows = [{
-        cluster_id: clusterId,
-        requested_by: auth.userId,
-        status: "queued",
-        run_mode: dryRun ? "dry_run" : runMode,
-        model_base: "Tongyi-MAI/Z-Image-Turbo",
-        target_version: targetVersion,
-        quality_gate_json: {},
-        result_json: { source: "tgis-admin-start-training", dryRun },
-      }];
-    }
+    const payloadRows: Array<Record<string, unknown>> = [{
+      cluster_id: clusterId,
+      requested_by: auth.userId,
+      status: "queued",
+      run_mode: dryRun ? "dry_run" : runMode,
+      training_provider: "fal",
+      model_base: "Tongyi-MAI/Z-Image-Turbo",
+      target_version: targetVersion,
+      quality_gate_json: {},
+      result_json: {
+        source: "tgis-admin-start-training",
+        dryRun,
+        stepsOverride: stepsOverride == null ? undefined : Number(stepsOverride),
+        learningRateOverride: learningRateOverride == null ? undefined : Number(learningRateOverride),
+        maxImagesOverride: maxImagesOverride == null ? undefined : Number(maxImagesOverride),
+      },
+    }];
 
     const { data, error } = await service
       .from("tgis_training_runs")

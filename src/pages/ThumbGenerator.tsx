@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Sparkles, Loader2, Download, Copy, RefreshCw, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,8 +23,12 @@ export default function ThumbGenerator() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [uploadingRef, setUploadingRef] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [category, setCategory] = useState("");
+  const [tagHint, setTagHint] = useState("");
+  const [referenceUrlInput, setReferenceUrlInput] = useState("");
+  const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [clusters, setClusters] = useState<ClusterRow[]>([]);
   const [result, setResult] = useState<TgisGenerateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +78,38 @@ export default function ThumbGenerator() {
     });
   }
 
+  function onSelectReferenceFile(ev: ChangeEvent<HTMLInputElement>) {
+    const f = ev.target.files?.[0] || null;
+    setReferenceFile(f);
+  }
+
+  async function uploadReferenceIfNeeded(): Promise<string | null> {
+    const urlFromInput = referenceUrlInput.trim();
+    if (urlFromInput) return urlFromInput;
+    if (!referenceFile) return null;
+
+    setUploadingRef(true);
+    try {
+      const { data: userRes, error: userErr } = await supabase.auth.getUser();
+      if (userErr || !userRes.user?.id) throw new Error("missing_user_session_for_reference_upload");
+      const uid = userRes.user.id;
+      const safeName = referenceFile.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+      const path = `${uid}/${Date.now()}-${safeName}`;
+
+      const { error: upErr } = await supabase.storage
+        .from("tgis-user-references")
+        .upload(path, referenceFile, {
+          upsert: false,
+          contentType: referenceFile.type || "image/jpeg",
+        });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from("tgis-user-references").getPublicUrl(path);
+      return data.publicUrl;
+    } finally {
+      setUploadingRef(false);
+    }
+  }
+
   async function handleGenerate(ev?: FormEvent) {
     ev?.preventDefault();
     const cleanPrompt = prompt.trim();
@@ -88,10 +124,21 @@ export default function ThumbGenerator() {
     setLoading(true);
     setError(null);
     setResult(null);
+    let referenceImageUrl: string | null = null;
+    try {
+      referenceImageUrl = await uploadReferenceIfNeeded();
+    } catch (e) {
+      setLoading(false);
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+
     const { data, error } = await supabase.functions.invoke("tgis-generate", {
       body: {
         prompt: cleanPrompt,
         category,
+        tagHint: tagHint.trim() || undefined,
+        referenceImageUrl: referenceImageUrl || undefined,
         variants: 4,
         aspect_ratio: "16:9",
       },
@@ -162,10 +209,40 @@ export default function ThumbGenerator() {
               </p>
             </div>
 
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Tag hint (optional)</Label>
+                <Textarea
+                  value={tagHint}
+                  onChange={(e) => setTagHint(e.target.value)}
+                  placeholder="ex.: 1v1, box fight, zone wars"
+                  className="min-h-12"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Reference image (optional)</Label>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={onSelectReferenceFile}
+                  className="block w-full rounded-md border border-border/60 bg-background px-3 py-2 text-sm"
+                />
+                <Textarea
+                  value={referenceUrlInput}
+                  onChange={(e) => setReferenceUrlInput(e.target.value)}
+                  placeholder="or paste a reference image URL"
+                  className="min-h-12"
+                />
+                {referenceFile ? (
+                  <p className="text-xs text-muted-foreground">Selected file: {referenceFile.name}</p>
+                ) : null}
+              </div>
+            </div>
+
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={loading} className="gap-2">
+              <Button type="submit" disabled={loading || uploadingRef} className="gap-2">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {loading ? t("thumbGenerator.generating") : t("thumbGenerator.generate")}
+                {(loading || uploadingRef) ? t("thumbGenerator.generating") : t("thumbGenerator.generate")}
               </Button>
               <Button type="button" variant="outline" onClick={() => void handleGenerate()} disabled={loading || !result}>
                 <RefreshCw className="mr-2 h-4 w-4" />
@@ -234,6 +311,16 @@ export default function ThumbGenerator() {
                 </CardContent>
               </Card>
             </div>
+
+            {result.reference_source ? (
+              <Card className="border-border/60 bg-card/40">
+                <CardContent className="pt-4">
+                  <p className="text-xs text-muted-foreground">Reference used</p>
+                  <p className="mt-1 text-sm font-semibold">{result.reference_source}</p>
+                  {result.reference_tag ? <p className="text-xs text-muted-foreground">tag: {result.reference_tag}</p> : null}
+                </CardContent>
+              </Card>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

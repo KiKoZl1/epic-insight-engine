@@ -8,6 +8,7 @@ import sys
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run nightly TGIS pipeline")
     p.add_argument("--config", default="ml/tgis/configs/base.yaml")
+    p.add_argument("--skip-reinforcement-queue", action="store_true")
     return p.parse_args()
 
 
@@ -24,6 +25,9 @@ def main() -> None:
     run([sys.executable, "-m", "ml.tgis.pipelines.thumb_pipeline", "--config", args.config])
     run([sys.executable, "-m", "ml.tgis.pipelines.export_cloud_manifest", "--config", args.config])
     run([sys.executable, "-m", "ml.tgis.pipelines.cost_sync", "--config", args.config])
+    run([sys.executable, "-m", "ml.tgis.pipelines.reference_sync", "--config", args.config])
+    if not args.skip_reinforcement_queue:
+        run([sys.executable, "-m", "ml.tgis.runtime.queue_score_reinforcement", "--config", args.config])
 
 
 if __name__ == "__main__":

@@ -72,12 +72,21 @@ verify_jwt = false
 [functions.tgis-admin-start-training]
 verify_jwt = false
 
+[functions.tgis-admin-training-run-action]
+verify_jwt = false
+
 [functions.tgis-admin-promote-model]
 verify_jwt = false
 
 [functions.tgis-admin-rollback-model]
 verify_jwt = false
 
+[functions.tgis-admin-delete-model]
+verify_jwt = false
+
 [functions.tgis-admin-sync-manifest]
+verify_jwt = false
+
+[functions.tgis-training-webhook]
 verify_jwt = false
 

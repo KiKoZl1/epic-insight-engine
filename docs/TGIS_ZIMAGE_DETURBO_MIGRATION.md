@@ -1,5 +1,9 @@
 # TGIS Migration: Z-Image-Turbo -> Z-Image-De-Turbo
 
+> Deprecated on 2026-03-02.
+> Current official path is `fal-ai/z-image-turbo-trainer-v2` + `fal-ai/z-image/turbo/image-to-image/lora`.
+> See `docs/TGIS_FAL_TRAINER_MIGRATION.md` and `docs/TGIS_RUNBOOK.md`.
+
 Date: 2026-03-01
 
 ## Why we migrated

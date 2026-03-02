@@ -4,3 +4,4 @@ requests>=2.32
 Pillow>=10.0
 torch>=2.2
 transformers>=4.48
+fal-client>=0.7

@@ -14,9 +14,9 @@ export default function AdminTgisInference() {
     setLoading(true);
     const { data } = await (supabase as any)
       .from("tgis_generation_log")
-      .select("id,user_id,category,cluster_id,lora_version,status,variants,latency_ms,cost_usd,provider,model_name,created_at,error_text")
+      .select("id,user_id,category,cluster_id,lora_version,status,variants,latency_ms,cost_usd,provider,model_name,metadata_json,created_at,error_text")
       .order("created_at", { ascending: false })
-      .limit(300);
+      .limit(140);
     setRows(Array.isArray(data) ? data : []);
     setLoading(false);
   }, []);
@@ -69,22 +69,35 @@ export default function AdminTgisInference() {
                     <th className="px-2 py-2">Variants</th>
                     <th className="px-2 py-2">Latency</th>
                     <th className="px-2 py-2">Cost</th>
+                    <th className="px-2 py-2">Reference</th>
+                    <th className="px-2 py-2">I2I/Lora</th>
+                    <th className="px-2 py-2">Output</th>
                     <th className="px-2 py-2">Model</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={`g:${row.id}`} className="border-b border-border/30">
-                      <td className="px-2 py-2">{fmtDate(row.created_at)}</td>
-                      <td className="px-2 py-2"><Badge variant="outline">{row.status}</Badge></td>
-                      <td className="px-2 py-2">{row.category}</td>
-                      <td className="px-2 py-2">{row.cluster_id ?? "-"}</td>
-                      <td className="px-2 py-2">{row.variants}</td>
-                      <td className="px-2 py-2">{row.latency_ms ? `${row.latency_ms}ms` : "-"}</td>
-                      <td className="px-2 py-2">${Number(row.cost_usd || 0).toFixed(4)}</td>
-                      <td className="px-2 py-2 text-xs">{row.provider}/{row.model_name}</td>
-                    </tr>
-                  ))}
+                  {rows.map((row) => {
+                    const meta = (row.metadata_json && typeof row.metadata_json === "object") ? row.metadata_json : {};
+                    const outW = Number((meta as any).enforced_output_width || 0);
+                    const outH = Number((meta as any).enforced_output_height || 0);
+                    return (
+                      <tr key={`g:${row.id}`} className="border-b border-border/30">
+                        <td className="px-2 py-2">{fmtDate(row.created_at)}</td>
+                        <td className="px-2 py-2"><Badge variant="outline">{row.status}</Badge></td>
+                        <td className="px-2 py-2">{row.category}</td>
+                        <td className="px-2 py-2">{row.cluster_id ?? "-"}</td>
+                        <td className="px-2 py-2">{row.variants}</td>
+                        <td className="px-2 py-2">{row.latency_ms ? `${row.latency_ms}ms` : "-"}</td>
+                        <td className="px-2 py-2">${Number(row.cost_usd || 0).toFixed(4)}</td>
+                        <td className="px-2 py-2 text-xs">{String((meta as any).reference_source || "-")}</td>
+                        <td className="px-2 py-2 text-xs">
+                          s={String((meta as any).i2i_strength ?? "-")} / l={String((meta as any).lora_scale ?? "-")}
+                        </td>
+                        <td className="px-2 py-2 text-xs">{outW && outH ? `${outW}x${outH}` : "-"}</td>
+                        <td className="px-2 py-2 text-xs">{row.provider}/{row.model_name}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

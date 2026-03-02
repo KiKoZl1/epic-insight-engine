@@ -6,3 +6,4 @@ psycopg[binary]>=3.2
 python-dotenv>=1.0
 requests>=2.32
 Pillow>=10.0
+fal-client>=0.7

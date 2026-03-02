@@ -38,17 +38,20 @@ captioning:
   max_images: 5000
 
 train:
-  model_base: "/workspace/models/Z-Image-De-Turbo-Complete"
+  model_base: "Tongyi-MAI/Z-Image-Turbo"
   model_arch: "zimage"
   adapter: ""
+  fal_trainer_model: "fal-ai/z-image-turbo-trainer-v2"
+  fal_generate_model: "fal-ai/z-image/turbo/image-to-image/lora"
+  i2i_strength_default: 0.6
+  lora_scale_default: 0.6
   quality_gate: "strict"
-  # 24GB-safe LoRA rank profile validated on RunPod smoke.
+  # Legacy AI Toolkit fallback profile (kept for compatibility while fal path is default).
   network_linear: 8
   network_linear_alpha: 8
   save_every: 500
   max_step_saves_to_keep: 4
-  # Training bucket target (single value) to avoid duplicate latent-cache passes.
-  # 1024 proved stable for cluster_01 without repeated OOM aborts.
+  # Legacy fallback training bucket target (single value).
   train_resolution: 1024
   # Product output policy remains 1920x1080 for final generated thumbnails.
   output_width: 1920
@@ -76,3 +79,8 @@ train:
 runtime:
   heartbeat_interval_sec: 60
   mode: "collect_only"
+  reinforcement_min_new_rows: 250
+  reinforcement_min_score: 0.35
+  reinforcement_steps: 2000
+  reinforcement_learning_rate: 0.0005
+  reinforcement_max_images: 0

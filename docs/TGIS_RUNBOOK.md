@@ -1,169 +1,151 @@
-# TGIS Runbook v2 (De-Turbo)
+# TGIS Runbook (fal Trainer v2 + Z-Image-Turbo i2i)
 
 ## Goal
-Operate TGIS training and runtime with a repeatable flow, minimal pod drift, and clear rollback points.
+Run TGIS training and inference with:
+1. Async training on `fal-ai/z-image-turbo-trainer-v2`
+2. Manual model promotion (`candidate -> active`)
+3. i2i inference on `fal-ai/z-image/turbo/image-to-image/lora`
+4. Final output fixed at `1920x1080`
 
-## Locked Decisions
-1. Training base: `ostris/Z-Image-De-Turbo` merged with `Tongyi-MAI/Z-Image-Turbo` components.
-2. No `assistant_lora_path` in training configs.
-3. Model config uses `arch: zimage` and `is_flux: false`.
-4. Training bucket uses a single value (`train_resolution`) to avoid double latent-cache passes.
-5. Default 24GB training profile: `network_linear=8`, `network_linear_alpha=8`, `train_resolution=1024`, `low_vram=true`.
-6. Final product output policy is `1920x1080` for user thumbnails.
+## Official Architecture
+1. Admin queues training via `tgis-admin-start-training`
+2. Worker consumes queue in `ml/tgis/runtime/process_training_queue.py`
+3. Worker submits trainer job via `ml/tgis/train/fal_trainer.py`
+4. fal calls `tgis-training-webhook` when job ends
+5. Webhook updates `tgis_training_runs` and upserts `tgis_model_versions` as `candidate`
+6. Admin promotes model manually via `tgis-admin-promote-model`
+7. Runtime generation uses `tgis-generate` (i2i + LoRA + reference selection)
 
-## Prerequisites
-1. TGIS migrations and edge functions are deployed.
-2. `ml/tgis/deploy/worker.env` exists and all keys are valid.
-3. RunPod pod is attached to the correct network volume.
+## Required Environment
+Set in worker and edge env:
+1. `SUPABASE_URL`
+2. `SUPABASE_SERVICE_ROLE_KEY`
+3. `SUPABASE_DB_URL` (worker only)
+4. `FAL_KEY` (or `FAL_API_KEY`)
+5. `TGIS_WEBHOOK_URL` (public URL for `tgis-training-webhook`)
+6. `TGIS_WEBHOOK_SECRET`
+7. `TGIS_FAL_TRAINER_MODEL` (optional override, default `fal-ai/z-image-turbo-trainer-v2`)
 
-## New Pod Bootstrap
-Run in this exact order.
-
-1. Upload latest files from local repo to pod:
-`scripts/setup_tgis.sh`, `ml/tgis/configs/base.yaml`, `ml/tgis/pipelines/config_generator.py`.
-2. Move script to project and make executable.
-3. Run:
+## First-Time Setup
+1. Apply migrations:
 ```bash
-bash scripts/setup_tgis.sh --setup-aitk
+supabase db push
 ```
-4. Validate:
+2. Deploy functions:
 ```bash
-source /workspace/.venv_tgis/bin/activate
-cd /workspace/epic-insight-engine
-set -a; source ml/tgis/deploy/worker.env; set +a
+supabase functions deploy tgis-admin-start-training
+supabase functions deploy tgis-training-webhook
+supabase functions deploy tgis-generate
+```
+3. Install/update worker deps:
+```bash
+pip install -r ml/tgis/requirements.txt
+```
+4. Validate worker preflight:
+```bash
 python -m ml.tgis.train.preflight_check --config ml/tgis/configs/base.yaml
 ```
 
-## Build De-Turbo Complete Model Folder
-Use minimal downloads only.
-
+## Dataset + Reference Sync
+Run the data pipeline before training:
 ```bash
-source /workspace/.venv_aitk/bin/activate
-mkdir -p /workspace/models/Z-Image-De-Turbo-Complete
-
-hf download Tongyi-MAI/Z-Image-Turbo \
-  --local-dir /workspace/models/Z-Image-De-Turbo-Complete \
-  --include "model_index.json"
-
-hf download Tongyi-MAI/Z-Image-Turbo \
-  --local-dir /workspace/models/Z-Image-De-Turbo-Complete \
-  --include "tokenizer/**"
-
-hf download Tongyi-MAI/Z-Image-Turbo \
-  --local-dir /workspace/models/Z-Image-De-Turbo-Complete \
-  --include "text_encoder/**"
-
-hf download Tongyi-MAI/Z-Image-Turbo \
-  --local-dir /workspace/models/Z-Image-De-Turbo-Complete \
-  --include "vae/**"
-
-hf download ostris/Z-Image-De-Turbo \
-  --local-dir /workspace/models/Z-Image-De-Turbo-Complete \
-  --include "transformer/**"
+python -m ml.tgis.pipelines.thumb_pipeline --config ml/tgis/configs/base.yaml
+python -m ml.tgis.pipelines.reference_sync --config ml/tgis/configs/base.yaml --top-n 3
+python -m ml.tgis.pipelines.manifest_writer --config ml/tgis/configs/base.yaml
 ```
 
-Sanity check:
+`reference_sync` populates:
+1. `public.tgis_reference_images` (top images by cluster/tag)
+2. `public.tgis_cluster_registry.reference_image_url` (cluster fallback)
+
+## Queue and Process Training
+1. Queue one cluster from admin or API (`tgis-admin-start-training`).
+2. `clusterId` is mandatory. Bulk queue (`all clusters`) is intentionally disabled.
+3. Run worker supervisor (recommended):
 ```bash
-find /workspace/models/Z-Image-De-Turbo-Complete -maxdepth 2 -type d | sort
+python -m ml.tgis.runtime.local_worker_supervisor --config ml/tgis/configs/base.yaml --max-training-runs 1 --poll-seconds 20
 ```
-Expected folders: `tokenizer`, `text_encoder`, `vae`, `transformer`.
-
-## Generate Training Configs
+4. One-shot queue tick (fallback/debug only):
 ```bash
-source /workspace/.venv_tgis/bin/activate
-cd /workspace/epic-insight-engine
-python -m ml.tgis.pipelines.config_generator --config ml/tgis/configs/base.yaml
+python -m ml.tgis.runtime.process_training_queue --config ml/tgis/configs/base.yaml --max-runs 1
 ```
+5. Expect run transitions:
+1. `queued`
+2. `running` (with `fal_request_id`, `dataset_zip_url`, `dataset_images_count`)
+3. `success` or `failed` after webhook callback
 
-Validate cluster config:
+Local Windows auto-recovery:
 ```bash
-sed -n '1,200p' ml/tgis/artifacts/train_configs/cluster_01.yaml | \
-egrep "name_or_path|arch|is_flux|quantize|assistant_lora_path|resolution|save_every|dtype|lr:"
+powershell -ExecutionPolicy Bypass -File ml/tgis/deploy/ensure_local_worker.ps1
 ```
+You can schedule this script every minute in Task Scheduler to keep worker always up.
 
-Expected:
-1. `name_or_path: /workspace/models/Z-Image-De-Turbo-Complete`
-2. `arch: zimage`
-3. `is_flux: false`
-4. `quantize: false`
-5. No `assistant_lora_path`
-6. `resolution: [1024]` (single value)
-7. `low_vram: true`
-8. `linear: 8` and `linear_alpha: 8`
+## Manual Promotion
+After visual QA:
+1. Promote candidate version in admin page `AdminTgisModels`
+2. Or call `tgis-admin-promote-model`
+3. Confirm:
+1. `tgis_model_versions.status='active'`
+2. `tgis_cluster_registry.lora_version` and `lora_fal_path` updated
+3. Manifest synced if requested
 
-## Smoke Test
-```bash
-python -m ml.tgis.train.runpod_train_cluster \
-  --config ml/tgis/configs/base.yaml \
-  --cluster-id 1 \
-  --smoke \
-  --smoke-steps 10 \
-  --target-version v1.0.0-smoke
-```
+## Inference Behavior
+`tgis-generate` uses i2i with this reference priority:
+1. `referenceImageUrl` sent by user
+2. `tgis_reference_images` top-3 by `cluster + tagHint`
+3. `tgis_cluster_registry.reference_image_url`
+4. Fail with `no_reference_image_available`
 
-Success criteria:
-1. Checkpoint saved under `ml/tgis/artifacts/train_output/tgis_cluster_combat_smoke/`.
-2. DB row in `tgis_training_runs` is `status='success'`.
+Output enforcement:
+1. Function requests `1920x1080` from fal.
+2. If provider returns other dimensions, function normalizes server-side via storage transform and returns `1920x1080`.
 
-## Real Training (Cluster 01)
-```bash
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-python -m ml.tgis.train.runpod_train_cluster \
-  --config ml/tgis/configs/base.yaml \
-  --cluster-id 1 \
-  --target-version v1.0.0
-```
+Security:
+1. User references must come from `tgis-user-references` bucket
+2. System fallback URLs allowed only for `cdn-*.qstv.on.epicgames.com`
 
-## OOM Recovery (24GB)
-If training aborts with `OOM during training step 3 times in a row`, enforce:
-1. `train_resolution: 1024`
-2. `network_linear: 8`
-3. `network_linear_alpha: 8`
-4. `low_vram: true`
-5. `export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
-
-## Stale Running Cleanup (DB)
+## Operational Checks
+1. Stuck `running` runs:
 ```sql
 update public.tgis_training_runs
 set status='failed', ended_at=now(), updated_at=now(), error_text='stale_running_cleanup'
-where status='running' and ended_at is null and started_at < now() - interval '10 minutes';
+where status='running' and ended_at is null and started_at < now() - interval '30 minutes';
+```
+2. Latest runs:
+```sql
+select id, cluster_id, status, fal_request_id, target_version, started_at, ended_at, error_text
+from public.tgis_training_runs
+order by id desc
+limit 20;
+```
+3. Latest candidates:
+```sql
+select cluster_id, version, status, lora_fal_path, updated_at
+from public.tgis_model_versions
+order by updated_at desc
+limit 20;
 ```
 
-## Cost and Disk Hygiene
-1. Stop failed downloads:
+## Troubleshooting
+1. `missing_tgis_webhook_url`: set `TGIS_WEBHOOK_URL` in worker env.
+2. `forbidden` on webhook: `TGIS_WEBHOOK_SECRET` mismatch between worker and edge env.
+3. `fal_train_submit_failed:*payload*`: rerun queue with smaller `maxImagesOverride`.
+4. `cluster_model_missing` on generate: no active model promoted for that cluster.
+5. `invalid_reference_image_url`: user reference URL not in whitelist.
+6. 500 on `tgis-generate`: inspect `tgis_generation_log.error_text`.
+
+## Reinforcement Loop
+Nightly can auto-queue reinforcement retrains from new high-score rows in `training_metadata.csv`:
 ```bash
-pkill -f "hf download" || true
-pkill -f "huggingface-cli download" || true
-```
-2. Remove partial files:
-```bash
-find /workspace/models -type f \( -name "*.incomplete" -o -name "*.lock" \) -delete
-```
-3. Check usage:
-```bash
-du -h --max-depth=1 /workspace | sort -hr | head -n 20
-df -h /workspace
+python -m ml.tgis.runtime.queue_score_reinforcement --config ml/tgis/configs/base.yaml
 ```
 
-## Pod to Repo Sync Checklist
-After successful training changes made in pod:
-1. Copy changed code/docs back to local repo with `scp`.
-2. Regenerate configs locally to match current `base.yaml`.
-3. Commit:
-   - `ml/tgis/configs/base.yaml`
-   - `ml/tgis/pipelines/config_generator.py`
-   - docs updates
-4. Do not commit transient artifacts (`train_output`, caches, tgz files).
+Config knobs (`base.yaml -> runtime`):
+1. `reinforcement_min_new_rows`
+2. `reinforcement_min_score`
+3. `reinforcement_steps`
+4. `reinforcement_learning_rate`
+5. `reinforcement_max_images`
 
-### SCP Template (pod -> local)
-```powershell
-cd C:\DEV\Surprise\epic-insight-engine
-scp -P <POD_PORT> -i "$env:USERPROFILE\.ssh\id_ed25519_runpod" root@<POD_IP>:/workspace/epic-insight-engine/ml/tgis/configs/base.yaml .\ml\tgis\configs\base.yaml
-scp -P <POD_PORT> -i "$env:USERPROFILE\.ssh\id_ed25519_runpod" root@<POD_IP>:/workspace/epic-insight-engine/ml/tgis/pipelines/config_generator.py .\ml\tgis\pipelines\config_generator.py
-scp -P <POD_PORT> -i "$env:USERPROFILE\.ssh\id_ed25519_runpod" root@<POD_IP>:/workspace/epic-insight-engine/ml/tgis/deploy/worker.env.example .\ml\tgis\deploy\worker.env.example
-```
-
-## Production Note
-Training resolution and inference output resolution are different concerns:
-1. Training uses bucketed resolution for stability and VRAM control.
-2. Runtime generation must return `1920x1080` in final user-facing output.
+## Legacy Path
+`ml/tgis/train/runpod_train_cluster.py` remains in repo as legacy fallback only.
