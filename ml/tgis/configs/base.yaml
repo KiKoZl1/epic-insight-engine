@@ -43,8 +43,8 @@ train:
   adapter: ""
   fal_trainer_model: "fal-ai/z-image-turbo-trainer-v2"
   fal_generate_model: "fal-ai/z-image/turbo/image-to-image/lora"
-  i2i_strength_default: 0.6
-  lora_scale_default: 0.6
+  i2i_strength_default: 0.35
+  lora_scale_default: 1.0
   quality_gate: "strict"
   # Legacy AI Toolkit fallback profile (kept for compatibility while fal path is default).
   network_linear: 8
