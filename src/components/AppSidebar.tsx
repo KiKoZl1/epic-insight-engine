@@ -16,7 +16,7 @@ export function AppSidebar() {
   const tools = [
     { title: "Workspace", url: "/app", icon: FolderOpen, end: true },
     { title: "Island Lookup", url: "/app/island-lookup", icon: Search },
-    { title: "Thumb Generator", url: "/app/thumb-generator", icon: ImagePlus },
+    { title: "Thumb Tools", url: "/app/thumb-tools", icon: ImagePlus },
   ];
 
   const platform = [
