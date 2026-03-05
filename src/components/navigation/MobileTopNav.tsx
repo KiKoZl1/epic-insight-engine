@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { LogOut, Menu, Shield, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -15,7 +15,7 @@ interface MobileTopNavProps {
   onSignOut: () => void;
 }
 
-export function MobileTopNav({ context, sections, access, onSignOut }: MobileTopNavProps) {
+export const MobileTopNav = memo(function MobileTopNav({ context, sections, access, onSignOut }: MobileTopNavProps) {
   const [open, setOpen] = useState(false);
   const { t, i18n } = useTranslation();
   const location = useLocation();
@@ -58,8 +58,9 @@ export function MobileTopNav({ context, sections, access, onSignOut }: MobileTop
                         key={item.id}
                         to={item.to}
                         onClick={() => setOpen(false)}
+                        aria-current={active ? "page" : undefined}
                         className={cn(
-                          "nav-motion-base block rounded-lg border px-3 py-2.5 transition-[background-color,color,border-color]",
+                          "nav-motion-base block rounded-lg border px-3 py-2.5 transition-[background-color,color,border-color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                           active
                             ? "border-primary/40 bg-primary/12 text-primary"
                             : "border-transparent text-foreground/85 hover:border-border/80 hover:bg-muted/60",
@@ -99,6 +100,7 @@ export function MobileTopNav({ context, sections, access, onSignOut }: MobileTop
                   <Button
                     variant={i18n.resolvedLanguage === "pt-BR" ? "default" : "outline"}
                     size="sm"
+                    aria-pressed={i18n.resolvedLanguage === "pt-BR"}
                     onClick={() => void i18n.changeLanguage("pt-BR")}
                   >
                     PT-BR
@@ -106,6 +108,7 @@ export function MobileTopNav({ context, sections, access, onSignOut }: MobileTop
                   <Button
                     variant={i18n.resolvedLanguage === "en" ? "default" : "outline"}
                     size="sm"
+                    aria-pressed={i18n.resolvedLanguage === "en"}
                     onClick={() => void i18n.changeLanguage("en")}
                   >
                     EN
@@ -140,6 +143,7 @@ export function MobileTopNav({ context, sections, access, onSignOut }: MobileTop
                   <Button
                     variant={i18n.resolvedLanguage === "pt-BR" ? "default" : "outline"}
                     size="sm"
+                    aria-pressed={i18n.resolvedLanguage === "pt-BR"}
                     onClick={() => void i18n.changeLanguage("pt-BR")}
                   >
                     PT-BR
@@ -147,6 +151,7 @@ export function MobileTopNav({ context, sections, access, onSignOut }: MobileTop
                   <Button
                     variant={i18n.resolvedLanguage === "en" ? "default" : "outline"}
                     size="sm"
+                    aria-pressed={i18n.resolvedLanguage === "en"}
                     onClick={() => void i18n.changeLanguage("en")}
                   >
                     EN
@@ -159,4 +164,6 @@ export function MobileTopNav({ context, sections, access, onSignOut }: MobileTop
       </SheetContent>
     </Sheet>
   );
-}
+});
+
+MobileTopNav.displayName = "MobileTopNav";

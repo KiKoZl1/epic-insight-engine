@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ChevronDown,
@@ -51,6 +51,9 @@ export function TopBar({ context }: TopBarProps) {
   const { user, isAdmin, isEditor, signOut } = useAuth();
   const [toolsOpen, setToolsOpen] = useState(false);
   const closeTimeoutRef = useRef<number | null>(null);
+  const toolsContainerRef = useRef<HTMLDivElement | null>(null);
+  const firstShortcutRef = useRef<HTMLAnchorElement | null>(null);
+  const toolsMenuId = useId();
 
   const access = useMemo<NavAccessState>(
     () => ({
@@ -91,6 +94,34 @@ export function TopBar({ context }: TopBarProps) {
     setToolsOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    if (!toolsOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!toolsContainerRef.current?.contains(event.target as Node)) {
+        setToolsOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setToolsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [toolsOpen]);
+
+  const handleSignOut = useCallback(() => {
+    void signOut();
+  }, [signOut]);
+
   const renderPrimaryLink = useCallback(
     (itemId: string, labelKey: string, to: string, active: boolean) => {
       return (
@@ -98,7 +129,7 @@ export function TopBar({ context }: TopBarProps) {
           key={itemId}
           to={to}
           className={cn(
-            "nav-motion-base rounded-md px-3 py-2 text-sm font-medium transition-[background-color,color]",
+            "nav-motion-base rounded-md px-3 py-2 text-sm font-medium transition-[background-color,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             active
               ? "bg-primary/14 text-primary"
               : "text-foreground/80 hover:bg-muted/70 hover:text-foreground",
@@ -135,6 +166,7 @@ export function TopBar({ context }: TopBarProps) {
             return (
               <div
                 key={item.id}
+                ref={toolsContainerRef}
                 className="relative"
                 onMouseEnter={() => {
                   clearCloseTimeout();
@@ -155,18 +187,25 @@ export function TopBar({ context }: TopBarProps) {
                     setToolsOpen(false);
                     (event.currentTarget as HTMLElement).blur();
                   }
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setToolsOpen(true);
+                    window.requestAnimationFrame(() => firstShortcutRef.current?.focus());
+                  }
                 }}
               >
                 <Link
                   to={item.to}
                   className={cn(
-                    "nav-motion-base inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-[background-color,color]",
+                    "nav-motion-base inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-[background-color,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     active
                       ? "bg-primary/14 text-primary"
                       : "text-foreground/80 hover:bg-muted/70 hover:text-foreground",
                   )}
                   aria-haspopup="menu"
                   aria-expanded={toolsOpen}
+                  aria-controls={toolsMenuId}
+                  aria-label={t("nav.thumbTools")}
                   onClick={() => setToolsOpen(false)}
                 >
                   {t(item.labelKey)}
@@ -174,6 +213,7 @@ export function TopBar({ context }: TopBarProps) {
                 </Link>
 
                 <div
+                  id={toolsMenuId}
                   className={cn(
                     "absolute left-1/2 top-full mt-2 w-[320px] -translate-x-1/2 rounded-xl border border-border/70 bg-card/96 p-2 shadow-2xl backdrop-blur-sm",
                     "nav-motion-base transition-[opacity,transform]",
@@ -185,7 +225,9 @@ export function TopBar({ context }: TopBarProps) {
                   {toolsShortcuts.map((shortcut) => (
                     <Link
                       key={shortcut.id}
+                      ref={shortcut === toolsShortcuts[0] ? firstShortcutRef : null}
                       to={shortcut.to}
+                      role="menuitem"
                       className="nav-motion-fast block rounded-lg px-3 py-2 transition-[background-color,transform] hover:bg-primary/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <div className="text-sm font-medium text-foreground">{t(shortcut.labelKey)}</div>
@@ -208,7 +250,7 @@ export function TopBar({ context }: TopBarProps) {
           {access.isAuthenticated ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-10 gap-2 rounded-full border border-border/60 pl-2.5 pr-3">
+                <Button variant="ghost" className="h-10 gap-2 rounded-full border border-border/60 pl-2.5 pr-3" aria-label={t("nav.profileMenu")}>
                   <Avatar className="h-6 w-6 border border-border/70">
                     <AvatarFallback className="bg-muted text-[11px] font-semibold text-foreground">
                       {getUserInitials(user?.email)}
@@ -249,7 +291,7 @@ export function TopBar({ context }: TopBarProps) {
                   className="text-destructive focus:text-destructive"
                   onSelect={(event) => {
                     event.preventDefault();
-                    void signOut();
+                    handleSignOut();
                   }}
                 >
                   <LogOut className="h-4 w-4" />
@@ -271,7 +313,7 @@ export function TopBar({ context }: TopBarProps) {
         </div>
 
         <div className="ml-auto lg:hidden">
-          <MobileTopNav context={context} sections={mobileSections} access={access} onSignOut={() => void signOut()} />
+          <MobileTopNav context={context} sections={mobileSections} access={access} onSignOut={handleSignOut} />
         </div>
       </div>
     </header>
