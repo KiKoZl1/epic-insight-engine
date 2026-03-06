@@ -34,9 +34,58 @@ type CameraValues = {
   zoom: number;
 };
 
-function normalizeHorizontalAngleForFal(azimuth: number): number {
-  const normalized = ((azimuth % 360) + 360) % 360;
+type ProviderCameraValues = {
+  horizontalAngle: number;
+  verticalAngle: number;
+  zoom: number;
+};
+
+const AZIMUTH_MAX = 70;
+const AZIMUTH_RESPONSE_GAMMA = 1.9;
+const ELEVATION_POS_MAX = 60;
+const ELEVATION_NEG_MAX = 30;
+const ELEVATION_RESPONSE_GAMMA = 1.5;
+const ZOOM_RESPONSE_GAMMA = 1.25;
+
+function normalizeHorizontalAngleForFal(angle: number): number {
+  const normalized = ((angle % 360) + 360) % 360;
   return Number(normalized.toFixed(2));
+}
+
+function mapAzimuthToProvider(azimuth: number): number {
+  const sign = azimuth < 0 ? -1 : azimuth > 0 ? 1 : 0;
+  if (!sign) return 0;
+  const normalized = Math.min(1, Math.abs(azimuth) / AZIMUTH_MAX);
+  const eased = Math.pow(normalized, AZIMUTH_RESPONSE_GAMMA);
+  const mapped = sign * eased * AZIMUTH_MAX;
+  return Number(mapped.toFixed(2));
+}
+
+function mapElevationToProvider(elevation: number): number {
+  if (elevation === 0) return 0;
+  if (elevation > 0) {
+    const normalized = Math.min(1, elevation / ELEVATION_POS_MAX);
+    const eased = Math.pow(normalized, ELEVATION_RESPONSE_GAMMA);
+    return Number((eased * ELEVATION_POS_MAX).toFixed(2));
+  }
+  const normalized = Math.min(1, Math.abs(elevation) / ELEVATION_NEG_MAX);
+  const eased = Math.pow(normalized, ELEVATION_RESPONSE_GAMMA);
+  return Number((-eased * ELEVATION_NEG_MAX).toFixed(2));
+}
+
+function mapZoomToProvider(zoom: number): number {
+  const normalized = Math.min(1, Math.max(0, zoom / 10));
+  const eased = Math.pow(normalized, ZOOM_RESPONSE_GAMMA);
+  return Number((eased * 10).toFixed(2));
+}
+
+function buildProviderCameraValues(values: CameraValues): ProviderCameraValues {
+  const mappedAzimuth = mapAzimuthToProvider(values.azimuth);
+  return {
+    horizontalAngle: normalizeHorizontalAngleForFal(mappedAzimuth),
+    verticalAngle: mapElevationToProvider(values.elevation),
+    zoom: mapZoomToProvider(values.zoom),
+  };
 }
 
 const PRESETS: Record<Exclude<CameraPreset, "custom">, CameraValues> = {
@@ -60,24 +109,6 @@ function resolveCameraValues(body: Record<string, unknown>, preset: CameraPreset
   };
 }
 
-function buildCameraPrompt(values: CameraValues, preset: CameraPreset) {
-  const apiHorizontal = normalizeHorizontalAngleForFal(values.azimuth);
-  const sideHint = values.azimuth < 0 ? "left-side orbit bias" : values.azimuth > 0 ? "right-side orbit bias" : "front-facing orbit";
-  return normalizeText([
-    "Fortnite thumbnail camera-control transform.",
-    "Apply a clear camera viewpoint change to the current image.",
-    "Keep character identities and scene elements, but reframe from the new camera position.",
-    "Do not keep the original framing if it conflicts with the requested camera movement.",
-    `Horizontal rotation target (user axis): ${values.azimuth.toFixed(1)} degrees.`,
-    `Horizontal rotation target (API axis 0..360): ${apiHorizontal.toFixed(1)} degrees (${sideHint}).`,
-    `Vertical tilt target: ${values.elevation.toFixed(1)} degrees.`,
-    `Distance target: ${values.distance.toFixed(2)} (0.5 close, 1.5 far).`,
-    `Zoom target: ${values.zoom.toFixed(2)} (0 wide, 10 close).`,
-    `Preset: ${preset}.`,
-    "No text, no logos, no watermark, no UI or HUD overlays.",
-  ].join(" "));
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -97,7 +128,7 @@ serve(async (req) => {
       ? presetRaw
       : "custom") as CameraPreset;
     const values = resolveCameraValues(body, preset);
-    const horizontalAngleApi = normalizeHorizontalAngleForFal(values.azimuth);
+    const providerValues = buildProviderCameraValues(values);
 
     let parentAssetId: string | null = null;
     let sourceImageUrl = sourceImageUrlRaw;
@@ -122,27 +153,23 @@ serve(async (req) => {
         source_image_url: sourceImageUrl,
         preset,
         azimuth: values.azimuth,
-        horizontal_angle_api: horizontalAngleApi,
         elevation: values.elevation,
         distance: values.distance,
         zoom: values.zoom,
+        provider_horizontal_angle: providerValues.horizontalAngle,
+        provider_vertical_angle: providerValues.verticalAngle,
+        provider_zoom: providerValues.zoom,
         camera_steps: cfg.camera_steps,
       },
     });
 
-    const prompt = buildCameraPrompt(values, preset);
     const falRaw = await callFalModel({
       model: cfg.camera_model,
       input: {
         image_urls: [sourceImageUrl],
-        horizontal_angle: horizontalAngleApi,
-        vertical_angle: values.elevation,
-        distance: Number(values.distance.toFixed(2)),
-        zoom: values.zoom,
-        additional_prompt: prompt,
-        lora_scale: 1,
-        guidance_scale: 4.5,
-        acceleration: "regular",
+        horizontal_angle: providerValues.horizontalAngle,
+        vertical_angle: providerValues.verticalAngle,
+        zoom: providerValues.zoom,
         num_images: 1,
         output_format: "png",
         num_inference_steps: cfg.camera_steps,
@@ -162,13 +189,14 @@ serve(async (req) => {
       metadata_json: {
         preset,
         azimuth: values.azimuth,
-        horizontal_angle_api: horizontalAngleApi,
         elevation: values.elevation,
         distance: values.distance,
         zoom: values.zoom,
+        provider_horizontal_angle: providerValues.horizontalAngle,
+        provider_vertical_angle: providerValues.verticalAngle,
+        provider_zoom: providerValues.zoom,
         camera_steps: cfg.camera_steps,
         provider_image_url: providerImageUrl,
-        prompt_used: prompt,
         provider_prompt: normalizeText(falRaw?.prompt || ""),
         storage_path: normalized.storage_path,
         raw_path: normalized.raw_path,
@@ -192,10 +220,12 @@ serve(async (req) => {
         provider_image_url: providerImageUrl,
         preset,
         azimuth: values.azimuth,
-        horizontal_angle_api: horizontalAngleApi,
         elevation: values.elevation,
         distance: values.distance,
         zoom: values.zoom,
+        provider_horizontal_angle: providerValues.horizontalAngle,
+        provider_vertical_angle: providerValues.verticalAngle,
+        provider_zoom: providerValues.zoom,
         provider_prompt: normalizeText(falRaw?.prompt || ""),
       },
     });

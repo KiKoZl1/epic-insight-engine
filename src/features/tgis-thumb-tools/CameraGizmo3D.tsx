@@ -240,7 +240,7 @@ function buildCameraGizmoScene(host: HTMLDivElement): SceneRefs {
 }
 
 function syncVisuals(scene: SceneRefs, controls: ControlsState) {
-  const rotRad = THREE.MathUtils.degToRad(-controls.rotateDeg);
+  const rotRad = THREE.MathUtils.degToRad(controls.rotateDeg);
   const visualTiltDeg = elevationToVisualTilt(controls.elevationDeg);
   const tiltRad = THREE.MathUtils.degToRad(visualTiltDeg);
   const realDistance = BASE_DISTANCE - (controls.moveForward / 10) * 1.0;
@@ -457,7 +457,7 @@ export default function CameraGizmo3D({
         const relX = hit.x - CENTER.x;
         const relZ = hit.z - CENTER.z;
         const angleDeg = THREE.MathUtils.radToDeg(Math.atan2(relX, relZ));
-        controlsRef.current.rotateDeg = clamp(-angleDeg, ROTATION_MIN, ROTATION_MAX);
+        controlsRef.current.rotateDeg = clamp(angleDeg, ROTATION_MIN, ROTATION_MAX);
         applyState(true);
         return;
       }
