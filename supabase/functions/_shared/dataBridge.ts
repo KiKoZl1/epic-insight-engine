@@ -41,7 +41,8 @@ export function shouldProxyToData(req: Request): boolean {
   const bridgeSecret = String(Deno.env.get("INTERNAL_BRIDGE_SECRET") || "").trim();
   const hop = String(req.headers.get("x-bridge-hop") || "");
 
-  if (!srcUrl || !dataUrl || !dataKey || !bridgeSecret) return false;
+  if (!srcUrl || !dataUrl) return false;
+  if (!dataKey || !bridgeSecret) return false;
   if (dataUrl === srcUrl) return false;
   if (hop === "1") return false;
   if (isInternalBridgeRequest(req)) return false;
@@ -57,6 +58,13 @@ export function isDataSplitConfigured(): boolean {
   return dataUrl !== srcUrl;
 }
 
+function isDataSplitIntentEnabled(): boolean {
+  const srcUrl = String(Deno.env.get("SUPABASE_URL") || "").trim();
+  const dataUrl = String(Deno.env.get("DATA_SUPABASE_URL") || "").trim();
+  if (!srcUrl || !dataUrl) return false;
+  return dataUrl !== srcUrl;
+}
+
 export function isStrictDataProxyEnabled(): boolean {
   // Default strict so App never silently falls back to local discovery/dppi paths.
   return getEnvBool("DISCOVERY_DPPI_PROXY_STRICT", true);
@@ -64,7 +72,9 @@ export function isStrictDataProxyEnabled(): boolean {
 
 export function shouldBlockLocalExecution(req: Request): boolean {
   if (!isStrictDataProxyEnabled()) return false;
-  if (!isDataSplitConfigured()) return false;
+  // Fail-closed on App whenever split intent is enabled (DATA_SUPABASE_URL != SUPABASE_URL),
+  // even if bridge credentials are missing/invalid.
+  if (!isDataSplitIntentEnabled()) return false;
   if (isInternalBridgeRequest(req)) return false;
   if (String(req.headers.get("x-bridge-hop") || "") === "1") return false;
   return !shouldProxyToData(req);

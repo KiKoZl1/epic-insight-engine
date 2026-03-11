@@ -28,32 +28,32 @@ function mustEnv(name: string): string {
   return value;
 }
 
-function isServiceRoleRequest(req: Request, serviceKey: string): boolean {
-  const authHeader = (req.headers.get("Authorization") || "").trim();
-  const apiKeyHeader = (req.headers.get("apikey") || "").trim();
-  const authToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : authHeader;
+function extractBearer(req: Request): string {
+  const authHeader = (req.headers.get("Authorization") || req.headers.get("authorization") || "").trim();
+  return authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+}
 
-  const isServiceRoleJwt = (token: string): boolean => {
-    try {
-      const parts = token.split(".");
-      if (parts.length !== 3) return false;
-      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-      const pad = b64.length % 4;
-      if (pad) b64 += "=".repeat(4 - pad);
-      const payload = JSON.parse(atob(b64));
-      return payload?.role === "service_role";
-    } catch {
-      return false;
-    }
-  };
+async function isServiceRoleRequest(req: Request, serviceKey: string, supabaseUrl: string): Promise<boolean> {
+  const bearer = extractBearer(req);
+  const apiKey = (req.headers.get("apikey") || "").trim();
+  const token = bearer || apiKey;
+  if (!token) return false;
+  if (bearer && bearer === serviceKey) return true;
+  if (apiKey && apiKey === serviceKey) return true;
 
-  if (serviceKey && (
-    authHeader === `Bearer ${serviceKey}` ||
-    authHeader === serviceKey ||
-    apiKeyHeader === serviceKey
-  )) return true;
-
-  return isServiceRoleJwt(authToken) || isServiceRoleJwt(apiKeyHeader);
+  // Supports rotated service keys: validate token against Auth Admin endpoint.
+  try {
+    const resp = await fetch(`${supabaseUrl}/auth/v1/admin/users?per_page=1&page=1`, {
+      method: "GET",
+      headers: {
+        apikey: token,
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function requireAdminOrEditor(req: Request, sbUrl: string, serviceKey: string) {
@@ -82,7 +82,7 @@ serve(async (req) => {
   try {
     const sbUrl = mustEnv("SUPABASE_URL");
     const serviceKey = mustEnv("SUPABASE_SERVICE_ROLE_KEY");
-    const serviceRoleMode = isServiceRoleRequest(req, serviceKey);
+    const serviceRoleMode = await isServiceRoleRequest(req, serviceKey, sbUrl);
 
     if (!serviceRoleMode) {
       await requireAdminOrEditor(req, sbUrl, serviceKey);
@@ -151,4 +151,3 @@ serve(async (req) => {
     }, 500);
   }
 });
-
