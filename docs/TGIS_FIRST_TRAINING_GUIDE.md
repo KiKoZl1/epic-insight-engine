@@ -5,7 +5,7 @@ Use this guide as the first operational checklist after setup/reset.
 
 ## 1) Prepare env
 ```bash
-cd c:/DEV/Surprise/uefntoolkit
+cd c:/DEV/UEFNToolkit/uefntoolkit
 ```
 
 Required env:

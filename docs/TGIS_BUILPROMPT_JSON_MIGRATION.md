@@ -311,4 +311,4 @@ Confirmado pelos repositórios de prompt engineering do Nano Banana 2 com 5k+ st
 
 ---
 
-*TGIS buildPrompt JSON Migration — Epic Insight Engine — 2026-03-04*
+*TGIS buildPrompt JSON Migration — UEFNToolkit — 2026-03-04*

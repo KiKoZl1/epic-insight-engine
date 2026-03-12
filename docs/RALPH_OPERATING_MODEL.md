@@ -1,4 +1,4 @@
-# Ralph Operating Model (Epic Insight Engine)
+# Ralph Operating Model (UEFNToolkit)
 
 This document defines how Ralph is used in this repository.
 

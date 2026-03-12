@@ -1,7 +1,7 @@
-# Epic Insight Engine — Contexto Completo do Projeto ("Megazord")
+# UEFNToolkit — Contexto Completo do Projeto ("Megazord")
 
 ## 1) O que é esta plataforma
-O **Epic Insight Engine** é uma plataforma de inteligência de dados para o ecossistema **Fortnite UGC / Discovery**.
+O **UEFNToolkit** é uma plataforma de inteligência de dados para o ecossistema **Fortnite UGC / Discovery**.
 
 Em termos práticos, ela transforma sinais brutos da Epic (ilhas, painéis/tags, exposição, métricas de tráfego e metadados) em:
 
@@ -259,7 +259,7 @@ Esse acoplamento é o diferencial e também a complexidade do projeto.
 ---
 
 ## 14) Como explicar em 30 segundos (pitch)
-“O Epic Insight Engine é uma plataforma que observa o Discovery do Fortnite em tempo real, transforma isso em inteligência acionável para criadores e operadores, e usa um orquestrador (Ralph + Kimi k2.5) para evoluir continuamente o produto com segurança operacional. O objetivo final é virar o sistema de decisão padrão para quem quer crescer no UGC do Fortnite com base em dados reais.”
+“O UEFNToolkit é uma plataforma que observa o Discovery do Fortnite em tempo real, transforma isso em inteligência acionável para criadores e operadores, e usa um orquestrador (Ralph + Kimi k2.5) para evoluir continuamente o produto com segurança operacional. O objetivo final é virar o sistema de decisão padrão para quem quer crescer no UGC do Fortnite com base em dados reais.”
 
 ---
 
