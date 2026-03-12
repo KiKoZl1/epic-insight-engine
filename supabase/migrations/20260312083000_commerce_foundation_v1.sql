@@ -292,6 +292,11 @@ CREATE TABLE IF NOT EXISTS public.commerce_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Operational guardrails for index creation in shared environments.
+-- Fail fast on lock contention instead of stalling DDL for long periods.
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '5min';
+
 CREATE INDEX IF NOT EXISTS commerce_accounts_state_idx
   ON public.commerce_accounts(access_state, plan_type);
 CREATE INDEX IF NOT EXISTS commerce_subscriptions_status_idx

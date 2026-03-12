@@ -1,6 +1,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveCommerceRoleFlags } from "../_shared/commerceAuthz.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +14,7 @@ type AuthedUser = {
   email: string;
   token: string;
   isAdmin: boolean;
+  isEditor: boolean;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -167,16 +169,18 @@ async function resolveUser(req: Request, service: ReturnType<typeof createClient
     .limit(1);
 
   const role = normalizeText(roleRows?.[0]?.role);
+  const roleFlags = resolveCommerceRoleFlags(role);
 
   return {
     userId: data.user.id,
     email: normalizeText(data.user.email),
     token,
-    isAdmin: role === "admin" || role === "editor",
+    isAdmin: roleFlags.isAdmin,
+    isEditor: roleFlags.isEditor,
   };
 }
 
-function requireAdmin(user: AuthedUser) {
+function requireFinancialAdmin(user: AuthedUser) {
   if (!user.isAdmin) throw new Error("forbidden");
 }
 
@@ -1346,33 +1350,33 @@ serve(async (req) => {
 
     if (req.method === "GET" && route.startsWith("/admin/user/")) {
       if (!user) throw new Error("unauthorized");
-      requireAdmin(user);
+      requireFinancialAdmin(user);
       const targetUserId = normalizeText(route.split("/")[3]);
       return await handleAdminUserOverview(service, targetUserId);
     }
 
     if (req.method === "POST" && route === "/admin/credits/grant") {
       if (!user) throw new Error("unauthorized");
-      requireAdmin(user);
+      requireFinancialAdmin(user);
       return await handleAdminCreditAdjust(req, service, user, true);
     }
 
     if (req.method === "POST" && route === "/admin/credits/debit") {
       if (!user) throw new Error("unauthorized");
-      requireAdmin(user);
+      requireFinancialAdmin(user);
       return await handleAdminCreditAdjust(req, service, user, false);
     }
 
     if (req.method === "POST" && route.startsWith("/admin/user/") && route.endsWith("/abuse-review")) {
       if (!user) throw new Error("unauthorized");
-      requireAdmin(user);
+      requireFinancialAdmin(user);
       const targetUserId = normalizeText(route.split("/")[3]);
       return await handleAdminAbuseReview(req, service, user, targetUserId);
     }
 
     if (req.method === "POST" && route.startsWith("/admin/user/") && route.endsWith("/suspend")) {
       if (!user) throw new Error("unauthorized");
-      requireAdmin(user);
+      requireFinancialAdmin(user);
       const targetUserId = normalizeText(route.split("/")[3]);
       return await handleAdminSuspend(req, service, targetUserId);
     }

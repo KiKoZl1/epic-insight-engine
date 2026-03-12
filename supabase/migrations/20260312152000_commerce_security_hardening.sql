@@ -1,5 +1,10 @@
 BEGIN;
 
+-- Operational guardrails for index creation in production windows.
+-- Keep lock wait bounded to avoid long blocking chains.
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '3min';
+
 CREATE TABLE IF NOT EXISTS public.commerce_request_rate_limits (
   scope text NOT NULL,
   subject_key text NOT NULL,

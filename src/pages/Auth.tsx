@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { BarChart3, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "react-i18next";
+import { PlatformBrand } from "@/components/brand/PlatformBrand";
 
 export default function Auth() {
   const { t } = useTranslation();
@@ -46,11 +47,10 @@ export default function Auth() {
           <ArrowLeft className="h-4 w-4" />
           {t("auth.goBack")}
         </Link>
+        <PlatformBrand className="justify-center" />
         <Card>
           <CardHeader className="text-center">
-            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-              <BarChart3 className="h-6 w-6 text-primary-foreground" />
-            </div>
+            <PlatformBrand className="mx-auto mb-2 justify-center" compact />
             <CardTitle className="font-display text-2xl">
               {isLogin ? t("auth.signIn") : t("auth.signUp")}
             </CardTitle>
