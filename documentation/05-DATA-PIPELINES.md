@@ -2,7 +2,7 @@
 
 ## Overview
 
-Epic Insight Engine operates multiple automated data pipelines that collect, process, and analyze Fortnite UGC data. These pipelines run on Supabase Edge Functions orchestrated by pg_cron jobs.
+UEFNToolkit operates multiple automated data pipelines that collect, process, and analyze Fortnite UGC data. These pipelines run on Supabase Edge Functions orchestrated by pg_cron jobs.
 
 ## Pipeline Architecture
 

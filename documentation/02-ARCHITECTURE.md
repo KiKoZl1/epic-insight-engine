@@ -2,7 +2,7 @@
 
 ## Runtime Model
 
-Epic Insight Engine operates on a **three-tier architecture**:
+UEFNToolkit operates on a **three-tier architecture**:
 
 ```
 +-------------------------------------------------------------+

@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildUserAgent } from "./brand.ts";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -664,7 +665,7 @@ export async function getSkinById(service: ReturnType<typeof createClient>, id: 
     method: "GET",
     headers: {
       Accept: "application/json",
-      "User-Agent": "epic-insight-engine/thumb-tools",
+      "User-Agent": buildUserAgent("thumb-tools"),
     },
   });
   if (!resp.ok) return null;

@@ -1,14 +1,14 @@
-# Surprise Radar — Discover Promotion Predictive Intelligence (DPPI)
+# UEFNToolkit — Discover Promotion Predictive Intelligence (DPPI)
 **PRD Final v2.0 — Documento Completo de Implementação**  
 Data: 2026-02-26  
-Owner: Surprise Radar (Giih)  
+Owner: UEFNToolkit (Giih)  
 Status: Aprovado para implementação
 
 ---
 
 ## 0. Executive Summary
 
-O Surprise Radar já captura exposição do Discover Fortnite 24/7 e replica painéis em near real-time. O DPPI é a camada preditiva que transforma esses dados em inteligência acionável: **quando e por que uma ilha vai entrar num painel, e o que ela precisa fazer para se manter**.
+O UEFNToolkit já captura exposição do Discover Fortnite 24/7 e replica painéis em near real-time. O DPPI é a camada preditiva que transforma esses dados em inteligência acionável: **quando e por que uma ilha vai entrar num painel, e o que ela precisa fazer para se manter**.
 
 O sistema substitui completamente o "Ver Timeline" atual (que usa cálculos estáticos sem aprendizado) por um motor que:
 - Aprende continuamente com os dados observados

@@ -402,4 +402,4 @@ CREATE VIEW tgis_island_metadata_latest AS [query da seção 2]
 
 ---
 
-*TGIS Caption Pipeline — 2026-02-28 — Epic Insight Engine — Confidencial*
+*TGIS Caption Pipeline — 2026-02-28 — UEFNToolkit — Confidencial*

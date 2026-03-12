@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Ralph** is Epic Insight Engine's local AI automation system. It provides intelligent operations, memory management, and autonomous decision-making capabilities for platform maintenance and optimization.
+**Ralph** is UEFNToolkit's local AI automation system. It provides intelligent operations, memory management, and autonomous decision-making capabilities for platform maintenance and optimization.
 
 ## What is Ralph^
 
@@ -284,7 +284,7 @@ Ralph uses structured prompts for different operations:
 
 #### Analysis Prompt
 ```
-You are Ralph, the AI operations assistant for Epic Insight Engine.
+You are Ralph, the AI operations assistant for UEFNToolkit.
 
 Current Context:
 - System Status: {status}

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildUserAgent } from "../_shared/brand.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -67,7 +68,7 @@ async function fetchOutfitCatalog(): Promise<any[]> {
   const resp = await fetch("https://fortnite-api.com/v2/cosmetics/br?type=outfit&language=en", {
     headers: {
       Accept: "application/json",
-      "User-Agent": "epic-insight-engine/tgis-skins-sync",
+      "User-Agent": buildUserAgent("tgis-skins-sync"),
     },
   });
   if (!resp.ok) {

@@ -8,7 +8,7 @@ export async function ensurePerfAdminAndLogin(page: Page, baseURL: string) {
   const publishableKey = mustEnv(env, "VITE_SUPABASE_PUBLISHABLE_KEY");
   const serviceRoleKey = mustEnv(env, "SUPABASE_SERVICE_ROLE_KEY");
 
-  const perfAdminEmail = String(env.PERF_ADMIN_EMAIL || "perf-admin@epic-insight.local").trim();
+  const perfAdminEmail = String(env.PERF_ADMIN_EMAIL || "perf-admin@uefntoolkit.local").trim();
   const perfAdminPassword = String(env.PERF_ADMIN_PASSWORD || "PerfAdmin#2026!").trim();
 
   const service = createClient(appUrl, serviceRoleKey, {
@@ -77,3 +77,4 @@ export async function ensurePerfAdminAndLogin(page: Page, baseURL: string) {
     accessToken: signIn.data.session?.access_token || "",
   };
 }
+

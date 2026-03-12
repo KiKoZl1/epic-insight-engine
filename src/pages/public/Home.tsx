@@ -11,6 +11,7 @@ import { getVisibleToolCategories, isNavItemProtectedForAccess } from "@/navigat
 import { resolveNavItemIcon } from "@/navigation/iconMap";
 import { NavAccessState } from "@/navigation/types";
 import { cn } from "@/lib/utils";
+import { BRAND_CANONICAL_URL } from "@/config/brand";
 import {
   Carousel,
   CarouselContent,
@@ -379,7 +380,7 @@ export default function Home() {
               <PlatformBrand />
               <h2 className="font-display text-2xl font-bold tracking-tight">{t("home.ctaSectionTitle")}</h2>
               <p className="max-w-2xl text-sm text-muted-foreground">{t("home.ctaSectionDesc")}</p>
-              <a href="https://www.surpriseugc.com/" target="_blank" rel="noreferrer" className="inline-flex text-sm text-primary hover:underline">
+              <a href={BRAND_CANONICAL_URL} target="_blank" rel="noreferrer" className="inline-flex text-sm text-primary hover:underline">
                 {t("brand.poweredBy")}
               </a>
               <p className="text-xs text-muted-foreground">{t("home.poweredByLine")}</p>

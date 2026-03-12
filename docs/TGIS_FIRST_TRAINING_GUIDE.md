@@ -5,7 +5,7 @@ Use this guide as the first operational checklist after setup/reset.
 
 ## 1) Prepare env
 ```bash
-cd c:/DEV/Surprise/epic-insight-engine
+cd c:/DEV/UEFNToolkit/uefntoolkit
 ```
 
 Required env:
@@ -82,3 +82,4 @@ from public.tgis_skin_usage_daily
 order by date desc, count desc
 limit 20;
 ```
+

@@ -9,6 +9,7 @@ from typing import Any
 
 import requests
 
+from ml.tgis.pipelines._brand import openrouter_referer, openrouter_title
 from ml.tgis.runtime import connect_db, load_runtime, utc_now_iso
 
 
@@ -38,8 +39,8 @@ def _call_openrouter(*, api_key: str, model: str, messages: list[dict[str, Any]]
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "https://surpriseradar.app"),
-            "X-Title": os.getenv("OPENROUTER_TITLE", "SurpriseRadar-TGIS"),
+            "HTTP-Referer": openrouter_referer(),
+            "X-Title": openrouter_title(),
         },
         json={
             "model": model,

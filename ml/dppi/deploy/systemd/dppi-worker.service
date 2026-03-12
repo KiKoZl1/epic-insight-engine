@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=oneshot
 User=dppi
 Group=dppi
-WorkingDirectory=/opt/epic-insight-engine
+WorkingDirectory=/opt/uefntoolkit
 EnvironmentFile=/etc/dppi/worker.env
 ExecStart=/usr/bin/bash -lc 'source .venv/bin/activate && python ml/dppi/pipelines/worker_tick.py --config ml/dppi/configs/base.yaml --channel production'
 StandardOutput=append:/var/log/dppi/worker.log
@@ -17,4 +17,5 @@ Nice=10
 
 [Install]
 WantedBy=multi-user.target
+
 

@@ -112,7 +112,7 @@
   "home": {
     "badge": "Hub unificado para creators de Fortnite UEFN",
     "title": "Ferramentas para crescer com",
-    "titleHighlight": "UEFN Tools",
+    "titleHighlight": "UEFNToolkit",
     "subtitle": "Um hub para discovery, analytics, thumbnail e widget tooling em uma unica plataforma.",
     "ctaPrimary": "Abrir Discover",
     "ctaSecondary": "Explorar Analytics Tools",
@@ -145,9 +145,9 @@
     "hubGridSubtitle": "Todos os hubs em um unico painel para entrar rapido no fluxo certo.",
     "hubCardOpenHub": "Abrir hub",
     "ctaSectionTitle": "Pronto para operar como estudio?",
-    "ctaSectionDesc": "UEFN Tools conecta inteligencia, producao e operacao no mesmo ambiente.",
+    "ctaSectionDesc": "UEFNToolkit conecta inteligencia, producao e operacao no mesmo ambiente.",
     "ctaSectionBtn": "Criar conta",
-    "poweredByLine": "Powered by Surprise Co para creators UEFN em escala."
+    "poweredByLine": "Powered by UEFNToolkit para creators UEFN em escala."
   },
   "auth": {
     "goBack": "Voltar",
@@ -810,7 +810,7 @@
     "goHome": "Voltar ao Início"
   },
   "footer": {
-    "copyright": "? 2026 UEFN Tools. Plataforma para creators de Fortnite UEFN."
+    "copyright": "? 2026 UEFNToolkit. Plataforma para creators de Fortnite UEFN."
   },
   "admin": {
     "panel": "Admin Panel",
@@ -1063,8 +1063,8 @@
     "noReportsDesc": "Clique em 'Gerar Report' para criar a primeira análise semanal."
   },
   "brand": {
-    "name": "UEFN Tools",
-    "poweredBy": "Powered by Surprise Co."
+    "name": "UEFNToolkit",
+    "poweredBy": "Powered by UEFNToolkit."
   },
   "analyticsTools": {
     "subtitle": "Conjunto de intelig?ncia para monitorar performance, visibilidade e tend?ncia das ilhas."

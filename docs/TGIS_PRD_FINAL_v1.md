@@ -1,16 +1,16 @@
-# Surprise Radar — Thumbnail Generation Intelligence System (TGIS)
+# UEFNToolkit — Thumbnail Generation Intelligence System (TGIS)
 ## PRD Final v1.0 — Documento Completo de Implementação
 
 **Data:** 2026-02-27
 **Owner:** Denny
 **Status:** Aprovado para Implementação
-**Plataforma:** Epic Insight Engine / Surprise Radar
+**Plataforma:** UEFNToolkit / UEFNToolkit
 
 ---
 
 ## 0. Executive Summary
 
-O Surprise Radar já possui o maior banco de dados privado de thumbnails de Fortnite Creative do mundo: aproximadamente 90.000 imagens coletadas continuamente via API da Epic, associadas a métricas reais de performance — CCU, tempo em painel, resultados de testes A/B, trocas de thumbnail, categoria e tags. Nenhum outro sistema público ou privado possui essa combinação.
+O UEFNToolkit já possui o maior banco de dados privado de thumbnails de Fortnite Creative do mundo: aproximadamente 90.000 imagens coletadas continuamente via API da Epic, associadas a métricas reais de performance — CCU, tempo em painel, resultados de testes A/B, trocas de thumbnail, categoria e tags. Nenhum outro sistema público ou privado possui essa combinação.
 
 O TGIS (Thumbnail Generation Intelligence System) é a camada que transforma esse acervo em vantagem competitiva direta para criadores: um gerador de thumbnails especialista, treinado para produzir imagens no estilo visual que o algoritmo do Discovery da Epic historicamente coloca nos painéis de maior alcance.
 
@@ -28,7 +28,7 @@ O sistema usa LoRAs (Low-Rank Adapters) treinados por cluster de categoria em ci
 | Inferência | fal.ai API | Geração em produção, pay-per-use |
 | Dataset | Supabase — discover_link_metadata | 90k thumbs + métricas de performance |
 | Download assets | Python worker (Hetzner CX22) | Curadoria, score, download organizado |
-| Frontend | Epic Insight Engine (React/TS) | Feature dentro do Surprise Radar |
+| Frontend | UEFNToolkit (React/TS) | Feature dentro do UEFNToolkit |
 
 **Equipe:** Solo developer + Claude Code + Codex
 **Custo de treino estimado:** ~$50–60 total para todos os clusters
@@ -50,7 +50,7 @@ Criadores de ilhas no Fortnite Creative enfrentam um problema concreto: a thumbn
 
 ### 1.2 O diferencial do TGIS
 
-O Surprise Radar já captura, em near real-time, todos os dados de exposição do Discovery. Isso cria um dataset único que nenhum modelo público possui acesso:
+O UEFNToolkit já captura, em near real-time, todos os dados de exposição do Discovery. Isso cria um dataset único que nenhum modelo público possui acesso:
 
 - 90k+ thumbnails indexadas com métricas de performance associadas
 - Histórico de testes A/B: sabemos quando um criador trocou de thumb e o impacto no CCU
@@ -95,7 +95,7 @@ Quando você treina seu LoRA em cima desse adapter, apenas o seu estilo/conceito
 - Implementar sistema de clustering visual por categoria usando CLIP embeddings
 - Treinar LoRAs especializados por cluster no Z-Image-Turbo via AI Toolkit
 - Criar pipeline de geração com reescrita inteligente de prompt (GPT-4o-mini)
-- Integrar a feature de geração de thumbnail no Surprise Radar como terceira ferramenta do Workspace
+- Integrar a feature de geração de thumbnail no UEFNToolkit como terceira ferramenta do Workspace
 
 ### 2.2 Objetivos secundários
 
@@ -767,7 +767,7 @@ async function logGeneration(params: any) {
 
 ---
 
-## 10. UX e Integração no Surprise Radar
+## 10. UX e Integração no UEFNToolkit
 
 ### 10.1 Posicionamento no produto
 
@@ -991,10 +991,10 @@ Quando o DPPI detectar PSI > 0.25 em features de CCU e stint para uma tag espec�
 └── logs/
 ```
 
-### Epic Insight Engine — Repositório principal
+### UEFNToolkit — Repositório principal
 
 ```
-epic-insight-engine/
+uefntoolkit/
 ├── src/
 │   ├── pages/
 │   │   └── ThumbGenerator.tsx           ← NOVO
@@ -1345,7 +1345,7 @@ Exibir sempre abaixo das imagens geradas:
 
 ---
 
-*Fim do documento. TGIS PRD Final v1.0 — 2026-02-27 — Surprise Radar — Confidencial*
+*Fim do documento. TGIS PRD Final v1.0 — 2026-02-27 — UEFNToolkit — Confidencial*
 
 ---
 

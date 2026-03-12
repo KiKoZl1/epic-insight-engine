@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildUserAgent } from "../_shared/brand.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -917,7 +918,7 @@ async function getSkinById(id: string): Promise<SkinRef | null> {
     method: "GET",
     headers: {
       "Accept": "application/json",
-      "User-Agent": "epic-insight-engine/tgis-generate",
+      "User-Agent": buildUserAgent("tgis-generate"),
     },
   }, 12000);
   if (!resp.ok) return null;

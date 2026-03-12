@@ -355,4 +355,4 @@ O TGIS está pronto para usuários reais quando todos os itens abaixo estiverem 
 
 ---
 
-*TGIS Prompt Engine — Epic Insight Engine — 2026-03-03*
+*TGIS Prompt Engine — UEFNToolkit — 2026-03-03*

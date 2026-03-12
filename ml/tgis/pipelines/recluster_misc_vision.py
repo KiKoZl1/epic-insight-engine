@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 import requests
 
+from ml.tgis.pipelines._brand import openrouter_referer, openrouter_title
 from ml.tgis.runtime import load_yaml, utc_now_iso
 
 
@@ -71,8 +72,8 @@ def _vision_call(image_url: str, model: str, api_key: str, families: list[str]) 
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "https://surpriseradar.app"),
-            "X-Title": os.getenv("OPENROUTER_TITLE", "SurpriseRadar-TGIS"),
+            "HTTP-Referer": openrouter_referer(),
+            "X-Title": openrouter_title(),
         },
         json=payload,
         timeout=45,

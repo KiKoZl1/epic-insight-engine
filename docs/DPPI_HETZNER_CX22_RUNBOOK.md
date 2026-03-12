@@ -23,9 +23,9 @@ sudo apt install -y git python3.11 python3.11-venv python3-pip build-essential j
 ## 3) Clonar projeto e preparar venv
 
 ```bash
-sudo mkdir -p /opt/epic-insight-engine
-sudo chown -R $USER:$USER /opt/epic-insight-engine
-cd /opt/epic-insight-engine
+sudo mkdir -p /opt/uefntoolkit
+sudo chown -R $USER:$USER /opt/uefntoolkit
+cd /opt/uefntoolkit
 git clone <SEU_REPO_URL> .
 
 python3.11 -m venv .venv
@@ -51,7 +51,7 @@ Variaveis obrigatorias:
 ## 5) Smoke test manual
 
 ```bash
-cd /opt/epic-insight-engine
+cd /opt/uefntoolkit
 source .venv/bin/activate
 python ml/dppi/monitoring/worker_heartbeat.py
 python ml/dppi/pipelines/worker_tick.py --config ml/dppi/configs/base.yaml --channel production
@@ -63,8 +63,8 @@ Validar no admin:
 ## 6) Habilitar systemd timer
 
 ```bash
-cd /opt/epic-insight-engine
-sudo bash ml/dppi/deploy/install_systemd.sh /opt/epic-insight-engine dppi dppi
+cd /opt/uefntoolkit
+sudo bash ml/dppi/deploy/install_systemd.sh /opt/uefntoolkit dppi dppi
 ```
 
 Verificar:
@@ -88,7 +88,7 @@ tail -n 100 /var/log/dppi/worker.log
 ### Deploy de atualizacao
 
 ```bash
-cd /opt/epic-insight-engine
+cd /opt/uefntoolkit
 git pull
 source .venv/bin/activate
 pip install -r ml/dppi/requirements.txt
@@ -98,7 +98,7 @@ sudo systemctl restart dppi-worker.timer
 ### Rollback rapido
 
 ```bash
-cd /opt/epic-insight-engine
+cd /opt/uefntoolkit
 git checkout <commit_anterior>
 source .venv/bin/activate
 pip install -r ml/dppi/requirements.txt
@@ -112,4 +112,5 @@ sudo systemctl restart dppi-worker.timer
 - [ ] Inference logs crescendo sem erro sistemico
 - [ ] Drift metrics sendo escritas periodicamente
 - [ ] Gate de training readiness bloqueando antes da janela minima
+
 

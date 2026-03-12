@@ -1,4 +1,4 @@
-You are Ralph operating on Epic Insight Engine.
+You are Ralph operating on UEFNToolkit.
 
 Primary objective:
 - Increase product value in `/app` with concrete UX + data clarity improvements.

@@ -30,7 +30,7 @@ step()  { echo -e "\n${BOLD}${BLUE}== $1 ==${NC}"; }
 ERRORS=0
 add_error() { err "$1"; ERRORS=$((ERRORS + 1)); }
 
-PROJECT="/workspace/epic-insight-engine"
+PROJECT="/workspace/uefntoolkit"
 WORKSPACE="/workspace"
 VENV_TGIS="/workspace/.venv_tgis"
 VENV_AITK="/workspace/.venv_aitk"
@@ -62,7 +62,7 @@ while [[ $# -gt 0 ]]; do
 Usage: bash scripts/setup_tgis.sh [options]
 
 Options:
-  --project <path>      Project path (default: /workspace/epic-insight-engine)
+  --project <path>      Project path (default: /workspace/uefntoolkit)
   --setup-aitk          Also prepare AI Toolkit repo + .venv_aitk
   --rebuild-aitk        Force recreate .venv_aitk
   --no-rebuild-tgis     Do not force recreate .venv_tgis
@@ -98,7 +98,7 @@ fi
 
 df -h "$WORKSPACE" | tail -1 | awk '{print "  disk: total="$2", used="$3", free="$4", used%="$5}'
 
-for d in epic-insight-engine ai-toolkit .venv_tgis .venv_aitk; do
+for d in uefntoolkit ai-toolkit .venv_tgis .venv_aitk; do
   if [[ -e "$WORKSPACE/$d" ]]; then
     size="$(du -sh "$WORKSPACE/$d" 2>/dev/null | cut -f1 || true)"
     ok "$d present ${size:+($size)}"
@@ -258,3 +258,4 @@ echo "  cd $AITK_REPO"
 echo "  python run.py /path/to/config.yaml"
 
 exit "$ERRORS"
+

@@ -1,10 +1,10 @@
-# Epic Insight Engine
+# UEFNToolkit
 
 A comprehensive data analytics platform for Fortnite UGC (User-Generated Content) discovery, providing insights into island metrics, trends, rankings, and AI-powered analysis.
 
 ## Overview
 
-Epic Insight Engine collects and analyzes data from Fortnite's island ecosystem, providing:
+UEFNToolkit collects and analyzes data from Fortnite's island ecosystem, providing:
 
 - **Weekly Discovery Reports** - Comprehensive analysis of trending islands
 - **Island Metrics** - Plays, unique players, minutes played, peak CCU, retention
@@ -29,7 +29,7 @@ Epic Insight Engine collects and analyzes data from Fortnite's island ecosystem,
 ## Project Structure
 
 ```
-epic-insight-engine/
+uefntoolkit/
 ├── src/
 │   ├── components/           # React components
 │   │   ├── ui/              # shadcn/ui components
@@ -70,7 +70,7 @@ epic-insight-engine/
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd epic-insight-engine
+cd uefntoolkit
 
 # Install dependencies
 npm install

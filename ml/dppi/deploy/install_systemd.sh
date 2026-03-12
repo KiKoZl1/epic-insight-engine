@@ -6,7 +6,7 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-REPO_DIR="${1:-/opt/epic-insight-engine}"
+REPO_DIR="${1:-/opt/uefntoolkit}"
 SERVICE_USER="${2:-dppi}"
 SERVICE_GROUP="${3:-dppi}"
 ENV_FILE="/etc/dppi/worker.env"
@@ -69,4 +69,5 @@ echo "Installed."
 echo "Check status:"
 echo "  systemctl status dppi-worker.timer"
 echo "  journalctl -u dppi-worker.service -n 100 --no-pager"
+
 

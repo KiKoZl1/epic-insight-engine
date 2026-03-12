@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { BRAND_NAME } from "@/config/brand";
 
 interface PlatformBrandProps {
   className?: string;
@@ -27,7 +28,7 @@ export function PlatformBrand({ className, iconClassName, textClassName, compact
       </div>
       {!compact ? (
         <span className={cn("font-display text-base font-bold tracking-tight sm:text-lg", textClassName)}>
-          UEFN <span className="text-primary">Tools</span>
+          {BRAND_NAME}
         </span>
       ) : null}
     </div>
