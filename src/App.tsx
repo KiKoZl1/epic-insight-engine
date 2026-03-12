@@ -19,6 +19,9 @@ const ReportsList = lazy(() => import("./pages/public/ReportsList"));
 const ReportView = lazy(() => import("./pages/public/ReportView"));
 const DiscoverLive = lazy(() => import("./pages/public/DiscoverLive"));
 const IslandPage = lazy(() => import("./pages/public/IslandPage"));
+const PublicAnalyticsToolsHub = lazy(() => import("./pages/tools/PublicAnalyticsToolsHub"));
+const PublicThumbToolsHub = lazy(() => import("./pages/tools/PublicThumbToolsHub"));
+const PublicWidgetKitHub = lazy(() => import("./pages/tools/PublicWidgetKitHub"));
 const Auth = lazy(() => import("./pages/Auth"));
 
 // Client pages
@@ -26,6 +29,7 @@ const AppDashboard = lazy(() => import("./pages/AppDashboard"));
 const ProjectDetail = lazy(() => import("./pages/ProjectDetail"));
 const ReportDashboard = lazy(() => import("./pages/ReportDashboard"));
 const IslandLookup = lazy(() => import("./pages/IslandLookup"));
+const AnalyticsToolsHub = lazy(() => import("./pages/analytics/AnalyticsToolsHub"));
 const ThumbToolsShell = lazy(() => import("./pages/thumb-tools/ThumbToolsShell"));
 const ThumbToolsHub = lazy(() => import("./pages/thumb-tools/ThumbToolsHub"));
 const GenerateToolPage = lazy(() => import("./pages/thumb-tools/GenerateToolPage"));
@@ -98,6 +102,9 @@ const App = () => (
                 <Route path="/island" element={<IslandPage />} />
                 <Route path="/reports" element={<ReportsList />} />
                 <Route path="/reports/:slug" element={<ReportView />} />
+                <Route path="/tools/analytics" element={<PublicAnalyticsToolsHub />} />
+                <Route path="/tools/thumb-tools" element={<PublicThumbToolsHub />} />
+                <Route path="/tools/widgetkit" element={<PublicWidgetKitHub />} />
               </Route>
 
               <Route path="/auth" element={<Auth />} />
@@ -105,6 +112,7 @@ const App = () => (
               {/* Client (auth required) */}
               <Route path="/app" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                 <Route index element={<AppDashboard />} />
+                <Route path="analytics-tools" element={<AnalyticsToolsHub />} />
                 <Route path="projects/:id" element={<ProjectDetail />} />
                 <Route path="projects/:id/reports/:reportId" element={<ReportDashboard />} />
                 <Route path="island-lookup" element={<IslandLookup />} />
