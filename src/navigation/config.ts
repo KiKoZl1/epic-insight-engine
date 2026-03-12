@@ -1,4 +1,4 @@
-import { NavAccessState, NavItem, NavSection, TopBarContext } from "./types";
+import { NavAccessState, NavItem, NavSection, ToolCategory, TopBarContext } from "./types";
 
 const navItem = (item: NavItem): NavItem => item;
 
@@ -14,18 +14,36 @@ const navItems = {
   discover: navItem({
     id: "discover",
     labelKey: "nav.discover",
+    descriptionKey: "nav.discoverDesc",
     to: "/discover",
     match: "exact",
     contexts: ["public", "app", "admin"],
     visibility: ["anon", "authenticated"],
+    icon: "discover",
+    group: "discover",
   }),
   reports: navItem({
     id: "reports",
     labelKey: "nav.reports",
+    descriptionKey: "nav.reportsDesc",
     to: "/reports",
     match: "prefix",
     contexts: ["public", "app", "admin"],
     visibility: ["anon", "authenticated"],
+    icon: "reports",
+    group: "analyticsTools",
+  }),
+  analyticsToolsHub: navItem({
+    id: "analyticsToolsHub",
+    labelKey: "nav.analyticsTools",
+    descriptionKey: "nav.analyticsToolsDesc",
+    to: "/tools/analytics",
+    publicHubTo: "/tools/analytics",
+    match: "prefix",
+    contexts: ["public", "app"],
+    visibility: ["anon", "authenticated"],
+    icon: "analyticsTools",
+    group: "analyticsTools",
   }),
   workspace: navItem({
     id: "workspace",
@@ -34,14 +52,32 @@ const navItems = {
     match: "exact",
     contexts: ["app", "admin"],
     visibility: ["authenticated", "client", "editor", "admin"],
+    icon: "islandAnalytics",
+    group: "misc",
+  }),
+  islandAnalytics: navItem({
+    id: "islandAnalytics",
+    labelKey: "nav.analyticsIslandAnalytics",
+    descriptionKey: "nav.analyticsIslandAnalyticsDesc",
+    to: "/app",
+    match: "exact",
+    contexts: ["public", "app"],
+    visibility: ["anon", "authenticated"],
+    icon: "islandAnalytics",
+    group: "analyticsTools",
+    requiresAuthPrompt: true,
   }),
   islandLookup: navItem({
     id: "islandLookup",
-    labelKey: "nav.islandLookup",
+    labelKey: "nav.analyticsIslandLookup",
+    descriptionKey: "nav.analyticsIslandLookupDesc",
     to: "/app/island-lookup",
     match: "exact",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
+    contexts: ["public", "app", "admin"],
+    visibility: ["anon", "authenticated"],
+    icon: "islandLookup",
+    group: "analyticsTools",
+    requiresAuthPrompt: true,
   }),
   billing: navItem({
     id: "billing",
@@ -50,22 +86,32 @@ const navItems = {
     match: "exact",
     contexts: ["app", "admin"],
     visibility: ["authenticated", "client", "editor", "admin"],
+    icon: "admin",
+    group: "misc",
   }),
   thumbToolsHub: navItem({
     id: "thumbToolsHub",
     labelKey: "nav.thumbTools",
-    to: "/app/thumb-tools",
+    descriptionKey: "nav.thumbToolsDesc",
+    to: "/tools/thumb-tools",
+    publicHubTo: "/tools/thumb-tools",
     match: "prefix",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
+    contexts: ["public", "app"],
+    visibility: ["anon", "authenticated"],
+    icon: "thumbTools",
+    group: "thumbTools",
   }),
   widgetKitHub: navItem({
     id: "widgetKitHub",
     labelKey: "nav.widgetKit",
-    to: "/app/widgetkit",
+    descriptionKey: "nav.widgetKitDesc",
+    to: "/tools/widgetkit",
+    publicHubTo: "/tools/widgetkit",
     match: "prefix",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
+    contexts: ["public", "app"],
+    visibility: ["anon", "authenticated"],
+    icon: "widgetKit",
+    group: "widgetKit",
   }),
   widgetKitPsdUmg: navItem({
     id: "widgetKitPsdUmg",
@@ -73,8 +119,11 @@ const navItems = {
     descriptionKey: "nav.widgetKitPsdUmgDesc",
     to: "/app/widgetkit/psd-umg",
     match: "exact",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
+    contexts: ["public", "app", "admin"],
+    visibility: ["anon", "authenticated"],
+    icon: "widgetKitPsdUmg",
+    group: "widgetKit",
+    requiresAuthPrompt: true,
   }),
   widgetKitUmgVerse: navItem({
     id: "widgetKitUmgVerse",
@@ -82,8 +131,11 @@ const navItems = {
     descriptionKey: "nav.widgetKitUmgVerseDesc",
     to: "/app/widgetkit/umg-verse",
     match: "exact",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
+    contexts: ["public", "app", "admin"],
+    visibility: ["anon", "authenticated"],
+    icon: "widgetKitUmgVerse",
+    group: "widgetKit",
+    requiresAuthPrompt: true,
   }),
   adminOverview: navItem({
     id: "adminOverview",
@@ -92,6 +144,8 @@ const navItems = {
     match: "exact",
     contexts: ["admin"],
     visibility: ["editor", "admin"],
+    icon: "admin",
+    group: "admin",
   }),
   adminReports: navItem({
     id: "adminReports",
@@ -100,6 +154,8 @@ const navItems = {
     match: "prefix",
     contexts: ["admin"],
     visibility: ["editor", "admin"],
+    icon: "admin",
+    group: "admin",
   }),
   adminExposure: navItem({
     id: "adminExposure",
@@ -108,6 +164,8 @@ const navItems = {
     match: "exact",
     contexts: ["admin"],
     visibility: ["editor", "admin"],
+    icon: "admin",
+    group: "admin",
   }),
   adminIntel: navItem({
     id: "adminIntel",
@@ -116,6 +174,8 @@ const navItems = {
     match: "exact",
     contexts: ["admin"],
     visibility: ["editor", "admin"],
+    icon: "admin",
+    group: "admin",
   }),
   adminPanels: navItem({
     id: "adminPanels",
@@ -124,6 +184,8 @@ const navItems = {
     match: "exact",
     contexts: ["admin"],
     visibility: ["editor", "admin"],
+    icon: "admin",
+    group: "admin",
   }),
   adminDppi: navItem({
     id: "adminDppi",
@@ -132,6 +194,8 @@ const navItems = {
     match: "prefix",
     contexts: ["admin"],
     visibility: ["editor", "admin"],
+    icon: "admin",
+    group: "admin",
   }),
   adminTgis: navItem({
     id: "adminTgis",
@@ -140,6 +204,8 @@ const navItems = {
     match: "prefix",
     contexts: ["admin"],
     visibility: ["editor", "admin"],
+    icon: "admin",
+    group: "admin",
   }),
   adminCommerce: navItem({
     id: "adminCommerce",
@@ -148,6 +214,8 @@ const navItems = {
     match: "exact",
     contexts: ["admin"],
     visibility: ["editor", "admin"],
+    icon: "admin",
+    group: "admin",
   }),
   toolsGenerate: navItem({
     id: "toolsGenerate",
@@ -155,8 +223,11 @@ const navItems = {
     descriptionKey: "nav.toolsGenerateDesc",
     to: "/app/thumb-tools/generate",
     match: "exact",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
+    contexts: ["public", "app", "admin"],
+    visibility: ["anon", "authenticated"],
+    icon: "generate",
+    group: "thumbTools",
+    requiresAuthPrompt: true,
   }),
   toolsEditStudio: navItem({
     id: "toolsEditStudio",
@@ -164,8 +235,11 @@ const navItems = {
     descriptionKey: "nav.toolsEditStudioDesc",
     to: "/app/thumb-tools/edit-studio",
     match: "exact",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
+    contexts: ["public", "app", "admin"],
+    visibility: ["anon", "authenticated"],
+    icon: "editStudio",
+    group: "thumbTools",
+    requiresAuthPrompt: true,
   }),
   toolsCameraControl: navItem({
     id: "toolsCameraControl",
@@ -173,8 +247,11 @@ const navItems = {
     descriptionKey: "nav.toolsCameraControlDesc",
     to: "/app/thumb-tools/camera-control",
     match: "exact",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
+    contexts: ["public", "app", "admin"],
+    visibility: ["anon", "authenticated"],
+    icon: "cameraControl",
+    group: "thumbTools",
+    requiresAuthPrompt: true,
   }),
   toolsLayerDecomposition: navItem({
     id: "toolsLayerDecomposition",
@@ -182,8 +259,11 @@ const navItems = {
     descriptionKey: "nav.toolsLayerDecompositionDesc",
     to: "/app/thumb-tools/layer-decomposition",
     match: "exact",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
+    contexts: ["public", "app", "admin"],
+    visibility: ["anon", "authenticated"],
+    icon: "layerDecomposition",
+    group: "thumbTools",
+    requiresAuthPrompt: true,
   }),
 };
 
@@ -191,16 +271,37 @@ const NAV_SECTIONS: NavSection[] = [
   {
     id: "platform",
     labelKey: "nav.sectionPlatform",
+    contexts: ["public", "app"],
+    visibility: ["anon", "authenticated"],
+    items: [navItems.discover, navItems.analyticsToolsHub, navItems.thumbToolsHub, navItems.widgetKitHub],
+  },
+  {
+    id: "analytics",
+    labelKey: "nav.sectionAnalyticsTools",
     contexts: ["public", "app", "admin"],
     visibility: ["anon", "authenticated"],
-    items: [navItems.home, navItems.discover, navItems.reports],
+    items: [navItems.islandAnalytics, navItems.islandLookup, navItems.reports],
   },
   {
     id: "app",
     labelKey: "nav.sectionWorkspace",
     contexts: ["app", "admin"],
     visibility: ["authenticated", "client", "editor", "admin"],
-    items: [navItems.workspace, navItems.islandLookup, navItems.billing, navItems.widgetKitHub, navItems.thumbToolsHub],
+    items: [navItems.workspace, navItems.billing],
+  },
+  {
+    id: "thumbTools",
+    labelKey: "nav.sectionThumbTools",
+    contexts: ["public", "app", "admin"],
+    visibility: ["anon", "authenticated"],
+    items: [navItems.toolsGenerate, navItems.toolsEditStudio, navItems.toolsCameraControl, navItems.toolsLayerDecomposition],
+  },
+  {
+    id: "widgetKitTools",
+    labelKey: "nav.sectionWidgetKit",
+    contexts: ["public", "app", "admin"],
+    visibility: ["anon", "authenticated"],
+    items: [navItems.widgetKitPsdUmg, navItems.widgetKitUmgVerse],
   },
   {
     id: "admin",
@@ -218,53 +319,85 @@ const NAV_SECTIONS: NavSection[] = [
       navItems.adminCommerce,
     ],
   },
-  {
-    id: "tools",
-    labelKey: "nav.sectionTools",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
-    items: [
-      navItems.toolsGenerate,
-      navItems.toolsEditStudio,
-      navItems.toolsCameraControl,
-      navItems.toolsLayerDecomposition,
-    ],
-  },
-  {
-    id: "widgetKitTools",
-    labelKey: "nav.sectionWidgetKit",
-    contexts: ["app", "admin"],
-    visibility: ["authenticated", "client", "editor", "admin"],
-    items: [
-      navItems.widgetKitPsdUmg,
-      navItems.widgetKitUmgVerse,
-    ],
-  },
 ];
 
 const PRIMARY_ITEMS_BY_CONTEXT: Record<TopBarContext, string[]> = {
-  public: ["discover", "reports"],
-  app: ["workspace", "islandLookup", "billing", "widgetKitHub", "thumbToolsHub", "discover", "reports"],
+  public: ["discover", "analyticsToolsHub", "thumbToolsHub", "widgetKitHub"],
+  app: ["workspace", "billing", "analyticsToolsHub", "thumbToolsHub", "widgetKitHub", "reports"],
   admin: ["adminOverview", "adminReports", "adminIntel", "adminExposure", "adminDppi", "adminTgis", "adminCommerce"],
 };
 
-const TOOL_SHORTCUT_ITEM_IDS = [
+const ANALYTICS_SHORTCUT_ITEM_IDS = ["islandAnalytics", "islandLookup", "reports"] as const;
+
+const THUMB_TOOLS_SHORTCUT_ITEM_IDS = [
   "toolsGenerate",
   "toolsEditStudio",
   "toolsCameraControl",
   "toolsLayerDecomposition",
 ] as const;
 
-const WIDGET_KIT_SHORTCUT_ITEM_IDS = [
-  "widgetKitPsdUmg",
-  "widgetKitUmgVerse",
-] as const;
+const WIDGET_KIT_SHORTCUT_ITEM_IDS = ["widgetKitPsdUmg", "widgetKitUmgVerse"] as const;
+
+const TOOL_CATEGORIES: ToolCategory[] = [
+  {
+    id: "discover",
+    labelKey: "nav.discover",
+    descriptionKey: "nav.discoverDesc",
+    icon: "discover",
+    hubItemId: "discover",
+    hubPublicRoute: "/discover",
+    subtoolIds: [],
+    contexts: ["public", "app"],
+    visibility: ["anon", "authenticated"],
+  },
+  {
+    id: "analyticsTools",
+    labelKey: "nav.analyticsTools",
+    descriptionKey: "nav.analyticsToolsDesc",
+    icon: "analyticsTools",
+    hubItemId: "analyticsToolsHub",
+    hubPublicRoute: "/tools/analytics",
+    subtoolIds: [...ANALYTICS_SHORTCUT_ITEM_IDS],
+    contexts: ["public", "app"],
+    visibility: ["anon", "authenticated"],
+  },
+  {
+    id: "thumbTools",
+    labelKey: "nav.thumbTools",
+    descriptionKey: "nav.thumbToolsDesc",
+    icon: "thumbTools",
+    hubItemId: "thumbToolsHub",
+    hubPublicRoute: "/tools/thumb-tools",
+    subtoolIds: [...THUMB_TOOLS_SHORTCUT_ITEM_IDS],
+    contexts: ["public", "app"],
+    visibility: ["anon", "authenticated"],
+  },
+  {
+    id: "widgetKit",
+    labelKey: "nav.widgetKit",
+    descriptionKey: "nav.widgetKitDesc",
+    icon: "widgetKit",
+    hubItemId: "widgetKitHub",
+    hubPublicRoute: "/tools/widgetkit",
+    subtoolIds: [...WIDGET_KIT_SHORTCUT_ITEM_IDS],
+    contexts: ["public", "app"],
+    visibility: ["anon", "authenticated"],
+  },
+];
+
+export interface ResolvedToolCategory extends ToolCategory {
+  hubItem: NavItem;
+  items: NavItem[];
+}
 
 function hasContext(contexts: TopBarContext[] | undefined, context: TopBarContext) {
   return !contexts || contexts.includes(context);
 }
 
-function hasVisibility(rules: NavItem["visibility"] | NavSection["visibility"], access: NavAccessState) {
+function hasVisibility(
+  rules: NavItem["visibility"] | NavSection["visibility"] | ToolCategory["visibility"],
+  access: NavAccessState,
+) {
   if (!rules || rules.length === 0) return true;
 
   return rules.some((rule) => {
@@ -277,12 +410,22 @@ function hasVisibility(rules: NavItem["visibility"] | NavSection["visibility"], 
   });
 }
 
-function getItemById(id: string): NavItem | undefined {
+function getItemsByIds(ids: readonly string[]) {
+  return ids
+    .map((id) => getNavItemById(id))
+    .filter((item): item is NavItem => Boolean(item));
+}
+
+export function getNavItemById(id: string): NavItem | undefined {
   return Object.values(navItems).find((item) => item.id === id);
 }
 
-function isItemVisible(item: NavItem, context: TopBarContext, access: NavAccessState) {
+export function isNavItemVisible(item: NavItem, context: TopBarContext, access: NavAccessState) {
   return hasContext(item.contexts, context) && hasVisibility(item.visibility, access);
+}
+
+export function isNavItemProtectedForAccess(item: NavItem, access: NavAccessState) {
+  return Boolean(item.requiresAuthPrompt && !access.isAuthenticated);
 }
 
 export function getVisibleNavSections(context: TopBarContext, access: NavAccessState): NavSection[] {
@@ -290,28 +433,58 @@ export function getVisibleNavSections(context: TopBarContext, access: NavAccessS
     .filter((section) => hasContext(section.contexts, context) && hasVisibility(section.visibility, access))
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => isItemVisible(item, context, access)),
+      items: section.items.filter((item) => isNavItemVisible(item, context, access)),
     }))
     .filter((section) => section.items.length > 0);
 }
 
 export function getTopBarPrimaryItems(context: TopBarContext, access: NavAccessState): NavItem[] {
   return PRIMARY_ITEMS_BY_CONTEXT[context]
-    .map(getItemById)
+    .map(getNavItemById)
     .filter((item): item is NavItem => Boolean(item))
-    .filter((item) => isItemVisible(item, context, access));
+    .filter((item) => isNavItemVisible(item, context, access));
+}
+
+export function getAnalyticsShortcutItems(context: TopBarContext, access: NavAccessState): NavItem[] {
+  return getItemsByIds(ANALYTICS_SHORTCUT_ITEM_IDS).filter((item) => isNavItemVisible(item, context, access));
+}
+
+export function getThumbToolsShortcutItems(context: TopBarContext, access: NavAccessState): NavItem[] {
+  return getItemsByIds(THUMB_TOOLS_SHORTCUT_ITEM_IDS).filter((item) => isNavItemVisible(item, context, access));
 }
 
 export function getToolsShortcutItems(context: TopBarContext, access: NavAccessState): NavItem[] {
-  return TOOL_SHORTCUT_ITEM_IDS.map(getItemById)
-    .filter((item): item is NavItem => Boolean(item))
-    .filter((item) => isItemVisible(item, context, access));
+  return getThumbToolsShortcutItems(context, access);
 }
 
 export function getWidgetKitShortcutItems(context: TopBarContext, access: NavAccessState): NavItem[] {
-  return WIDGET_KIT_SHORTCUT_ITEM_IDS.map(getItemById)
-    .filter((item): item is NavItem => Boolean(item))
-    .filter((item) => isItemVisible(item, context, access));
+  return getItemsByIds(WIDGET_KIT_SHORTCUT_ITEM_IDS).filter((item) => isNavItemVisible(item, context, access));
+}
+
+export function getCategoryShortcutItems(hubItemId: string, context: TopBarContext, access: NavAccessState): NavItem[] {
+  if (hubItemId === "analyticsToolsHub") return getAnalyticsShortcutItems(context, access);
+  if (hubItemId === "thumbToolsHub") return getThumbToolsShortcutItems(context, access);
+  if (hubItemId === "widgetKitHub") return getWidgetKitShortcutItems(context, access);
+  return [];
+}
+
+export function getVisibleToolCategories(context: TopBarContext, access: NavAccessState): ResolvedToolCategory[] {
+  return TOOL_CATEGORIES
+    .filter((category) => hasContext(category.contexts, context) && hasVisibility(category.visibility, access))
+    .map((category) => {
+      const hubItem = getNavItemById(category.hubItemId);
+      if (!hubItem) return null;
+
+      const items = getItemsByIds(category.subtoolIds).filter((item) => isNavItemVisible(item, context, access));
+      if (!isNavItemVisible(hubItem, context, access)) return null;
+
+      return {
+        ...category,
+        hubItem,
+        items,
+      };
+    })
+    .filter((category): category is ResolvedToolCategory => Boolean(category));
 }
 
 export function isNavItemActive(item: NavItem, pathname: string) {
