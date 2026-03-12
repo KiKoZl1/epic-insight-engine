@@ -2,6 +2,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveCommerceRoleFlags } from "../_shared/commerceAuthz.ts";
+import { CommerceToolCode, isCommerceToolCode } from "../_shared/commerceTools.ts";
+import { isStripeTimestampWithinTolerance, parseStripeSignatureHeader } from "../_shared/stripeSignature.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,13 +21,7 @@ type AuthedUser = {
 
 type JsonRecord = Record<string, unknown>;
 
-type ToolCode =
-  | "surprise_gen"
-  | "edit_studio"
-  | "camera_control"
-  | "layer_decomposition"
-  | "psd_to_umg"
-  | "umg_to_verse";
+type ToolCode = CommerceToolCode;
 
 type SubscriptionStatus = "inactive" | "active" | "past_due" | "cancel_at_period_end" | "expired" | "canceled";
 
@@ -45,6 +41,17 @@ function json(payload: unknown, status = 200, extraHeaders: Record<string, strin
       ...extraHeaders,
     },
   });
+}
+
+function internalServerError(context: string, error: unknown): Response {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[commerce] ${context}: ${message}`);
+  return json({ success: false, error: "internal_error" }, 500);
+}
+
+function logServerError(context: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[commerce] ${context}: ${message}`);
 }
 
 function normalizeText(value: unknown): string {
@@ -428,14 +435,23 @@ function buildToolCostCatalog(configRows: Array<{ config_key: string; value_json
   };
 }
 
-function stripeVerifySignature(rawBody: string, signatureHeader: string, secret: string): Promise<boolean> {
+function stripeVerifySignature(
+  rawBody: string,
+  signatureHeader: string,
+  secret: string,
+  toleranceSeconds: number,
+): Promise<boolean> {
   return (async () => {
-    const parts = signatureHeader.split(",").map((x) => x.trim());
-    const t = parts.find((x) => x.startsWith("t="))?.slice(2) || "";
-    const v1 = parts.find((x) => x.startsWith("v1="))?.slice(3) || "";
-    if (!t || !v1) return false;
-    const expected = await hmacSha256Hex(secret, `${t}.${rawBody}`);
-    return constantTimeEqual(v1, expected);
+    const parsed = parseStripeSignatureHeader(signatureHeader);
+    if (!parsed.timestamp || parsed.signaturesV1.length === 0) return false;
+
+    const nowUnix = Math.floor(Date.now() / 1000);
+    if (!isStripeTimestampWithinTolerance(parsed.timestamp, nowUnix, toleranceSeconds)) {
+      return false;
+    }
+
+    const expected = await hmacSha256Hex(secret, `${parsed.timestamp}.${rawBody}`);
+    return parsed.signaturesV1.some((candidate) => constantTimeEqual(candidate, expected));
   })();
 }
 
@@ -534,7 +550,7 @@ async function handleMeLedger(req: Request, service: ReturnType<typeof createCli
   if (beforeId > 0) query = query.lt("id", beforeId);
 
   const { data, error } = await query;
-  if (error) return json({ success: false, error: error.message }, 500);
+  if (error) return internalServerError("handleMeLedger", error);
 
   return json({ success: true, items: data || [] });
 }
@@ -553,7 +569,7 @@ async function handleMeUsageSummary(req: Request, service: ReturnType<typeof cre
   if (cycleId) query = query.eq("cycle_id", cycleId);
 
   const { data, error } = await query;
-  if (error) return json({ success: false, error: error.message }, 500);
+  if (error) return internalServerError("handleMeUsageSummary", error);
 
   const byTool: Record<string, number> = {};
   let total = 0;
@@ -569,17 +585,19 @@ async function handleMeUsageSummary(req: Request, service: ReturnType<typeof cre
 
 async function handleToolsExecute(req: Request, service: ReturnType<typeof createClient>, user: AuthedUser) {
   const body = await readJsonBody(req);
-  const toolCode = normalizeText(body.tool_code) as ToolCode;
+  const toolCodeRaw = normalizeText(body.tool_code);
   const requestId = normalizeText(body.request_id) || crypto.randomUUID();
   const idempotencyKey = getIdempotencyKey(req, body);
   const payload = (body.payload && typeof body.payload === "object") ? body.payload as JsonRecord : {};
 
   if (!idempotencyKey) return json({ success: false, error: "missing_idempotency_key" }, 400);
-  if (!toolCode) return json({ success: false, error: "missing_tool_code" }, 400);
+  if (!toolCodeRaw) return json({ success: false, error: "missing_tool_code" }, 400);
+  if (!isCommerceToolCode(toolCodeRaw)) return json({ success: false, error: "invalid_tool_code" }, 400);
+  const toolCode = toolCodeRaw;
 
   const deviceFingerprintHash = extractDeviceFingerprintHash(req, body);
   const ensureRes = await service.rpc("commerce_ensure_account", { p_user_id: user.userId, p_device_fingerprint_hash: deviceFingerprintHash });
-  if (ensureRes.error) return json({ success: false, error: ensureRes.error.message }, 500);
+  if (ensureRes.error) return internalServerError("handleToolsExecute.ensureAccount", ensureRes.error);
 
   const payloadHash = await sha256Hex(JSON.stringify(payload));
 
@@ -591,7 +609,7 @@ async function handleToolsExecute(req: Request, service: ReturnType<typeof creat
     p_payload_hash: payloadHash,
   });
 
-  if (debitError) return json({ success: false, error: debitError.message }, 500);
+  if (debitError) return internalServerError("handleToolsExecute.debitToolCredits", debitError);
 
   const debit = (debitData || {}) as any;
   if (!debit.success) {
@@ -726,7 +744,7 @@ async function handleToolsReverse(req: Request, service: ReturnType<typeof creat
     p_actor_role: user.isAdmin ? "admin" : "user",
   });
 
-  if (error) return json({ success: false, error: error.message }, 500);
+  if (error) return internalServerError("handleToolsReverse", error);
   return json({ success: true, reversal: data || null });
 }
 
@@ -736,7 +754,7 @@ async function handleBillingPacksList(service: ReturnType<typeof createClient>) 
     .select("config_key,value_json")
     .in("config_key", ["enable_credit_packs", "pack_small_credits", "pack_medium_credits", "pack_large_credits"]);
 
-  if (error) return json({ success: false, error: error.message }, 500);
+  if (error) return internalServerError("handleBillingPacksList", error);
 
   const rows = Array.isArray(data) ? data : [];
   const enabled = rows.find((r) => r.config_key === "enable_credit_packs")?.value_json?.value !== false;
@@ -756,7 +774,7 @@ async function handleCatalogToolCosts(service: ReturnType<typeof createClient>) 
       "tool_cost_umg_to_verse",
     ]);
 
-  if (error) return json({ success: false, error: error.message }, 500);
+  if (error) return internalServerError("handleCatalogToolCosts", error);
   return json({ success: true, tool_costs: buildToolCostCatalog(Array.isArray(data) ? (data as any) : []) });
 }
 
@@ -880,7 +898,7 @@ async function handleBillingSubscriptionCheckout(req: Request, service: ReturnTy
   const cancelUrl = normalizeText(body.cancel_url) || `${appBase}/app/billing?checkout=cancel`;
   const deviceFingerprintHash = extractDeviceFingerprintHash(req, body);
   const ensureRes = await service.rpc("commerce_ensure_account", { p_user_id: user.userId, p_device_fingerprint_hash: deviceFingerprintHash });
-  if (ensureRes.error) return json({ success: false, error: ensureRes.error.message }, 500);
+  if (ensureRes.error) return internalServerError("handleBillingSubscriptionCheckout.ensureAccount", ensureRes.error);
 
   try {
     const session = await stripeCreateCheckoutSession({
@@ -899,7 +917,8 @@ async function handleBillingSubscriptionCheckout(req: Request, service: ReturnTy
 
     return json({ success: true, checkout_url: session.url, checkout_session_id: session.id });
   } catch (error) {
-    return json({ success: false, error: error instanceof Error ? error.message : String(error) }, 500);
+    logServerError("handleBillingSubscriptionCheckout.createCheckout", error);
+    return json({ success: false, error: "stripe_upstream_error" }, 502);
   }
 }
 
@@ -928,7 +947,7 @@ async function handleBillingPackCheckout(req: Request, service: ReturnType<typeo
   const cancelUrl = normalizeText(body.cancel_url) || `${appBase}/app/credits?pack=cancel`;
   const deviceFingerprintHash = extractDeviceFingerprintHash(req, body);
   const ensureRes = await service.rpc("commerce_ensure_account", { p_user_id: user.userId, p_device_fingerprint_hash: deviceFingerprintHash });
-  if (ensureRes.error) return json({ success: false, error: ensureRes.error.message }, 500);
+  if (ensureRes.error) return internalServerError("handleBillingPackCheckout.ensureAccount", ensureRes.error);
 
   try {
     const session = await stripeCreateCheckoutSession({
@@ -958,7 +977,8 @@ async function handleBillingPackCheckout(req: Request, service: ReturnType<typeo
 
     return json({ success: true, checkout_url: session.url, checkout_session_id: session.id, pack_code: packCode, credits: Math.floor(credits) });
   } catch (error) {
-    return json({ success: false, error: error instanceof Error ? error.message : String(error) }, 500);
+    logServerError("handleBillingPackCheckout.createCheckout", error);
+    return json({ success: false, error: "stripe_upstream_error" }, 502);
   }
 }
 
@@ -966,8 +986,9 @@ async function handleWebhook(req: Request, service: ReturnType<typeof createClie
   const rawBody = await req.text();
   const sig = normalizeText(req.headers.get("stripe-signature"));
   const webhookSecret = optionalEnv("STRIPE_WEBHOOK_SECRET");
+  const signatureToleranceSeconds = envInt("STRIPE_WEBHOOK_TOLERANCE_SECONDS", 300, 30, 3600);
   if (!webhookSecret) return json({ success: false, error: "stripe_webhook_secret_not_configured" }, 503);
-  const valid = await stripeVerifySignature(rawBody, sig, webhookSecret);
+  const valid = await stripeVerifySignature(rawBody, sig, webhookSecret, signatureToleranceSeconds);
   if (!valid) return json({ success: false, error: "invalid_webhook_signature" }, 401);
 
   let payload: any;
@@ -1000,7 +1021,7 @@ async function handleWebhook(req: Request, service: ReturnType<typeof createClie
     .select("id")
     .single();
 
-  if (webhookInsertError) return json({ success: false, error: webhookInsertError.message }, 500);
+  if (webhookInsertError) return internalServerError("handleWebhook.insertEvent", webhookInsertError);
 
   try {
     const object = payload?.data?.object || {};
@@ -1125,7 +1146,7 @@ async function handleWebhook(req: Request, service: ReturnType<typeof createClie
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await service.from("commerce_webhook_events").update({ status: "failed", error_text: message }).eq("id", webhookRow.id);
-    return json({ success: false, error: message }, 500);
+    return internalServerError("handleWebhook.processEvent", error);
   }
 }
 
@@ -1180,7 +1201,7 @@ async function handleAdminCreditAdjust(req: Request, service: ReturnType<typeof 
     p_reference_id: normalizeText(body.reference_id) || null,
   });
 
-  if (error) return json({ success: false, error: error.message }, 500);
+  if (error) return internalServerError("handleAdminCreditAdjust", error);
   return json({ success: true, result: data || null });
 }
 
@@ -1206,7 +1227,7 @@ async function handleAdminAbuseReview(req: Request, service: ReturnType<typeof c
   }
 
   const { error: updateError } = await service.from("commerce_accounts").update(patch).eq("user_id", targetUserId);
-  if (updateError) return json({ success: false, error: updateError.message }, 500);
+  if (updateError) return internalServerError("handleAdminAbuseReview.updateAccount", updateError);
 
   await service.from("commerce_abuse_signals").insert({
     user_id: targetUserId,
@@ -1231,7 +1252,7 @@ async function handleAdminSuspend(req: Request, service: ReturnType<typeof creat
 
   if (suspend) {
     const { error } = await service.from("commerce_accounts").update({ access_state: "suspended" }).eq("user_id", targetUserId);
-    if (error) return json({ success: false, error: error.message }, 500);
+    if (error) return internalServerError("handleAdminSuspend.updateAccount", error);
   } else {
     await service.rpc("commerce_sync_access_state", { p_user_id: targetUserId });
   }
@@ -1384,7 +1405,7 @@ serve(async (req) => {
     if (req.method === "POST" && route === "/internal/jobs/weekly-release") {
       requireInternalOrAdmin(req, user);
       const { data, error } = await service.rpc("commerce_weekly_release_job", { p_now: new Date().toISOString(), p_limit: 1000 });
-      if (error) return json({ success: false, error: error.message }, 500);
+      if (error) return internalServerError("internal.jobs.weeklyRelease", error);
       return json({ success: true, result: data || null });
     }
 
@@ -1393,7 +1414,7 @@ serve(async (req) => {
       const body = await readJsonBody(req);
       const limit = Math.max(1, Math.min(5000, Math.floor(Number(body.limit || 1000))));
       const { data, error } = await service.rpc("commerce_reconcile_job", { p_limit: limit });
-      if (error) return json({ success: false, error: error.message }, 500);
+      if (error) return internalServerError("internal.jobs.reconcile", error);
       return json({ success: true, result: data || null });
     }
 
@@ -1404,9 +1425,8 @@ serve(async (req) => {
       ? 401
       : message === "forbidden"
         ? 403
-        : message.includes("stripe")
-          ? 502
-          : 500;
+        : 500;
+    if (status === 500) return internalServerError("serve.root", error);
     return json({ success: false, error: message }, status);
   }
 });
