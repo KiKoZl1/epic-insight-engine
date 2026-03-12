@@ -43,6 +43,14 @@ const navItems = {
     contexts: ["app", "admin"],
     visibility: ["authenticated", "client", "editor", "admin"],
   }),
+  billing: navItem({
+    id: "billing",
+    labelKey: "nav.billing",
+    to: "/app/billing",
+    match: "exact",
+    contexts: ["app", "admin"],
+    visibility: ["authenticated", "client", "editor", "admin"],
+  }),
   thumbToolsHub: navItem({
     id: "thumbToolsHub",
     labelKey: "nav.thumbTools",
@@ -133,6 +141,14 @@ const navItems = {
     contexts: ["admin"],
     visibility: ["editor", "admin"],
   }),
+  adminCommerce: navItem({
+    id: "adminCommerce",
+    labelKey: "nav.commerce",
+    to: "/admin/commerce",
+    match: "exact",
+    contexts: ["admin"],
+    visibility: ["editor", "admin"],
+  }),
   toolsGenerate: navItem({
     id: "toolsGenerate",
     labelKey: "nav.toolsGenerate",
@@ -184,7 +200,7 @@ const NAV_SECTIONS: NavSection[] = [
     labelKey: "nav.sectionWorkspace",
     contexts: ["app", "admin"],
     visibility: ["authenticated", "client", "editor", "admin"],
-    items: [navItems.workspace, navItems.islandLookup, navItems.widgetKitHub, navItems.thumbToolsHub],
+    items: [navItems.workspace, navItems.islandLookup, navItems.billing, navItems.widgetKitHub, navItems.thumbToolsHub],
   },
   {
     id: "admin",
@@ -199,6 +215,7 @@ const NAV_SECTIONS: NavSection[] = [
       navItems.adminPanels,
       navItems.adminDppi,
       navItems.adminTgis,
+      navItems.adminCommerce,
     ],
   },
   {
@@ -227,8 +244,8 @@ const NAV_SECTIONS: NavSection[] = [
 
 const PRIMARY_ITEMS_BY_CONTEXT: Record<TopBarContext, string[]> = {
   public: ["discover", "reports"],
-  app: ["workspace", "islandLookup", "widgetKitHub", "thumbToolsHub", "discover", "reports"],
-  admin: ["adminOverview", "adminReports", "adminIntel", "adminExposure", "adminDppi", "adminTgis"],
+  app: ["workspace", "islandLookup", "billing", "widgetKitHub", "thumbToolsHub", "discover", "reports"],
+  admin: ["adminOverview", "adminReports", "adminIntel", "adminExposure", "adminDppi", "adminTgis", "adminCommerce"],
 };
 
 const TOOL_SHORTCUT_ITEM_IDS = [

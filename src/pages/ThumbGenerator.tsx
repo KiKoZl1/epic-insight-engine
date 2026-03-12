@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { useTranslation } from "react-i18next";
 import { useThumbTools } from "@/features/tgis-thumb-tools/ThumbToolsProvider";
 import type { TgisGenerateResponse } from "@/types/tgis";
+import { executeCommerceTool } from "@/lib/commerce/client";
 
 type SkinSearchItem = {
   id: string;
@@ -280,22 +281,36 @@ export default function ThumbGenerator() {
       return;
     }
 
-    const { data, error } = await supabase.functions.invoke("tgis-generate", {
-      body: {
-        prompt: prompt.trim(),
-        tags,
-        cameraAngle,
-        moodOverride: moodOverride || undefined,
-        styleMode: styleMode || undefined,
-        skinIds: selectedSkins.map((x) => x.id),
-        referenceImageUrl: referenceImageUrl || undefined,
-        contextBoost,
-      },
-    });
+    let data: any = null;
+    let error: Error | null = null;
+    try {
+      const commerce = await executeCommerceTool({
+        toolCode: "surprise_gen",
+        payload: {
+          prompt: prompt.trim(),
+          tags,
+          cameraAngle,
+          moodOverride: moodOverride || undefined,
+          styleMode: styleMode || undefined,
+          skinIds: selectedSkins.map((x) => x.id),
+          referenceImageUrl: referenceImageUrl || undefined,
+          contextBoost,
+        },
+      });
+      data = commerce?.tool_result || null;
+    } catch (e) {
+      error = e as Error;
+      data = (e as any)?.payload || null;
+    }
     setLoading(false);
 
     if (error || data?.success === false) {
-      setError(error?.message || data?.error || "Falha na geracao.");
+      const code = String((data as any)?.error_code || "");
+      if (code === "INSUFFICIENT_CREDITS") {
+        setError("Saldo insuficiente. Compre creditos extras para continuar.");
+      } else {
+        setError(error?.message || data?.error || "Falha na geracao.");
+      }
       return;
     }
 

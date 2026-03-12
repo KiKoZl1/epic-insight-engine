@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { executeCommerceTool } from "@/lib/commerce/client";
 
 type LayerItem = {
   index: number;
@@ -78,17 +79,31 @@ export default function LayerDecompositionPage() {
       return;
     }
     setLoading(true);
-    const { data, error } = await supabase.functions.invoke("tgis-layer-decompose", {
-      body: {
-        assetId: currentAsset?.id || undefined,
-        sourceImageUrl,
-        numLayers: FIXED_LAYER_COUNT,
-      },
-    });
+    let data: any = null;
+    let error: Error | null = null;
+    try {
+      const commerce = await executeCommerceTool({
+        toolCode: "layer_decomposition",
+        payload: {
+          assetId: currentAsset?.id || undefined,
+          sourceImageUrl,
+          numLayers: FIXED_LAYER_COUNT,
+        },
+      });
+      data = commerce?.tool_result || null;
+    } catch (e) {
+      error = e as Error;
+      data = (e as any)?.payload || null;
+    }
     setLoading(false);
 
     if (error || data?.success === false) {
-      setErrorText(String(error?.message || data?.error || "Falha no layer decomposition."));
+      const code = String((data as any)?.error_code || "");
+      if (code === "INSUFFICIENT_CREDITS") {
+        setErrorText("Saldo insuficiente. Compre creditos extras para continuar.");
+      } else {
+        setErrorText(String(error?.message || data?.error || "Falha no layer decomposition."));
+      }
       return;
     }
 

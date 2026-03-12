@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { executeCommerceTool } from "@/lib/commerce/client";
 
 type EditMode = "mask_edit" | "character_replace";
 type EffectiveMode = "mask_edit" | "character_replace" | "custom_character";
@@ -366,22 +367,36 @@ export default function EditStudioPage() {
       ? canvasRef.current?.toDataURL("image/png")
       : undefined;
     setLoading(true);
-    const { data, error } = await supabase.functions.invoke("tgis-edit-studio", {
-      body: {
-        assetId: currentAsset?.id || undefined,
-        sourceImageUrl,
-        mode: effectiveMode,
-        prompt: promptValue || undefined,
-        maskDataUrl,
-        replacementSkinId: effectiveMode === "character_replace" ? replacementSkinIdValue : undefined,
-        customCharacterImageUrl: effectiveMode === "custom_character" ? customCharacterImageUrlValue : undefined,
-        tags,
-        contextBoost,
-      },
-    });
+    let data: any = null;
+    let error: Error | null = null;
+    try {
+      const commerce = await executeCommerceTool({
+        toolCode: "edit_studio",
+        payload: {
+          assetId: currentAsset?.id || undefined,
+          sourceImageUrl,
+          mode: effectiveMode,
+          prompt: promptValue || undefined,
+          maskDataUrl,
+          replacementSkinId: effectiveMode === "character_replace" ? replacementSkinIdValue : undefined,
+          customCharacterImageUrl: effectiveMode === "custom_character" ? customCharacterImageUrlValue : undefined,
+          tags,
+          contextBoost,
+        },
+      });
+      data = commerce?.tool_result || null;
+    } catch (e) {
+      error = e as Error;
+      data = (e as any)?.payload || null;
+    }
     setLoading(false);
     if (error || data?.success === false) {
-      setErrorText(String(error?.message || data?.error || "Falha no edit studio."));
+      const code = String((data as any)?.error_code || "");
+      if (code === "INSUFFICIENT_CREDITS") {
+        setErrorText("Saldo insuficiente. Compre creditos extras para continuar.");
+      } else {
+        setErrorText(String(error?.message || data?.error || "Falha no edit studio."));
+      }
       return;
     }
     const imageUrl = String(data?.image?.url || "").trim();

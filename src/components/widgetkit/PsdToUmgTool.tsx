@@ -11,6 +11,7 @@ import { deleteWidgetKitHistory, listWidgetKitHistory, saveWidgetKitHistory } fr
 import { parsePsdFile, summarizePsdJson } from "@/lib/widgetkit/psd-parser";
 import { generateBeginObject } from "@/lib/widgetkit/umg-generator";
 import type { PsdJson, PsdParseSummary, UmgOutput, WidgetKitHistoryItem } from "@/types/widgetkit";
+import { executeCommerceTool, reverseCommerceOperation } from "@/lib/commerce/client";
 
 type PsdToolStatus =
   | "idle"
@@ -126,29 +127,60 @@ export default function PsdToUmgTool({ active }: { active: boolean }) {
 
   async function handleGenerate(saveHistory: boolean) {
     if (!parsedJson || !summary) return;
-
-    const output = generateBeginObject(parsedJson, { includeTint });
-    setUmgOutput(output);
-    setStatus("ready");
-
-    if (!saveHistory) return;
-
+    let operationId = "";
     try {
-      const saved = await saveWidgetKitHistory({
-        tool: "psd-umg",
-        name: parsedJson.file,
-        data: parsedJson,
-        meta: {
-          totalLayers: summary.totalLayers,
-          groupCount: summary.groupCount,
-          imageCount: summary.imageCount,
-          textCount: summary.textCount,
-          includeTint,
+      const billing = await executeCommerceTool({
+        toolCode: "psd_to_umg",
+        payload: {
+          file_name: parsedJson.file,
+          total_layers: summary.totalLayers,
+          include_tint: includeTint,
         },
       });
-      setHistory((prev) => [saved, ...prev].slice(0, 10));
-    } catch {
-      toast({ title: t("common.error"), description: t("widgetKit.historySaveError"), variant: "destructive" });
+      operationId = String(billing?.operation_id || "");
+
+      const output = generateBeginObject(parsedJson, { includeTint });
+      setUmgOutput(output);
+      setStatus("ready");
+
+      if (!saveHistory) return;
+
+      try {
+        const saved = await saveWidgetKitHistory({
+          tool: "psd-umg",
+          name: parsedJson.file,
+          data: parsedJson,
+          meta: {
+            totalLayers: summary.totalLayers,
+            groupCount: summary.groupCount,
+            imageCount: summary.imageCount,
+            textCount: summary.textCount,
+            includeTint,
+          },
+        });
+        setHistory((prev) => [saved, ...prev].slice(0, 10));
+      } catch {
+        toast({ title: t("common.error"), description: t("widgetKit.historySaveError"), variant: "destructive" });
+      }
+    } catch (error) {
+      const code = String((error as any)?.payload?.error_code || "");
+      if (operationId) {
+        try {
+          await reverseCommerceOperation({
+            operationId,
+            reason: "client_local_tool_failed_psd_to_umg",
+          });
+        } catch {
+          // best effort
+        }
+      }
+      toast({
+        title: t("common.error"),
+        description: code === "INSUFFICIENT_CREDITS"
+          ? "Saldo insuficiente. Compre creditos extras para continuar."
+          : String((error as Error)?.message || "Falha ao consumir creditos."),
+        variant: "destructive",
+      });
     }
   }
 

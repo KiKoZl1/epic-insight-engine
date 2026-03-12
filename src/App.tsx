@@ -36,6 +36,7 @@ const WidgetKit = lazy(() => import("./pages/WidgetKit"));
 const WidgetKitShell = lazy(() => import("./pages/widgetkit/WidgetKitShell"));
 const PsdToUmgPage = lazy(() => import("./pages/widgetkit/PsdToUmgPage"));
 const UmgToVersePage = lazy(() => import("./pages/widgetkit/UmgToVersePage"));
+const BillingPage = lazy(() => import("./pages/BillingPage"));
 
 // Admin pages
 const AdminOverview = lazy(() => import("./pages/admin/AdminOverview"));
@@ -61,6 +62,7 @@ const AdminTgisInference = lazy(() => import("./pages/admin/tgis/AdminTgisInfere
 const AdminTgisCosts = lazy(() => import("./pages/admin/tgis/AdminTgisCosts"));
 const AdminTgisSafety = lazy(() => import("./pages/admin/tgis/AdminTgisSafety"));
 const AdminTgisThumbTools = lazy(() => import("./pages/admin/tgis/AdminTgisThumbTools"));
+const AdminCommerce = lazy(() => import("./pages/admin/AdminCommerce"));
 
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -108,6 +110,7 @@ const App = () => (
                 <Route path="projects/:id" element={<ProjectDetail />} />
                 <Route path="projects/:id/reports/:reportId" element={<ReportDashboard />} />
                 <Route path="island-lookup" element={<IslandLookup />} />
+                <Route path="billing" element={<BillingPage />} />
                 <Route path="thumb-generator" element={<Navigate to="/app/thumb-tools/generate" replace />} />
                 <Route path="widgetkit" element={<WidgetKitShell />}>
                   <Route index element={<WidgetKit />} />
@@ -148,6 +151,7 @@ const App = () => (
                 <Route path="tgis/thumb-tools" element={<AdminTgisThumbTools />} />
                 <Route path="tgis/costs" element={<AdminTgisCosts />} />
                 <Route path="tgis/safety" element={<AdminTgisSafety />} />
+                <Route path="commerce" element={<AdminCommerce />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

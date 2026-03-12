@@ -9,6 +9,7 @@ import { deleteWidgetKitHistory, listWidgetKitHistory, saveWidgetKitHistory } fr
 import { parseUassetFile } from "@/lib/widgetkit/uasset-parser";
 import { generateVerseOutput } from "@/lib/widgetkit/verse-generator";
 import type { GeneratedOutput, ParsedWidget, WidgetKitHistoryItem } from "@/types/widgetkit";
+import { executeCommerceTool, reverseCommerceOperation } from "@/lib/commerce/client";
 
 type UmgToolStatus = "empty" | "parsing" | "preview" | "ready" | "no_fields" | "error_format";
 
@@ -122,31 +123,61 @@ export default function UmgToVerseTool({ active }: { active: boolean }) {
 
   async function handleGenerate(saveHistory: boolean) {
     if (!parsedWidget || parsedWidget.fields.length === 0) return;
-
-    const output = generateVerseOutput(parsedWidget);
-    setGenerated(output);
-    setStatus("ready");
-
-    if (!saveHistory) return;
-
+    let operationId = "";
     try {
-      const saved = await saveWidgetKitHistory({
-        tool: "umg-verse",
-        name: `${parsedWidget.widgetName}.uasset`,
-        data: parsedWidget,
-        meta: {
-          totalFields: parsedWidget.fields.length,
-          messages: parsedWidget.fieldsByType.messages.length,
-          booleans: parsedWidget.fieldsByType.booleans.length,
-          floats: parsedWidget.fieldsByType.floats.length,
-          integers: parsedWidget.fieldsByType.integers.length,
-          assets: parsedWidget.fieldsByType.assets.length,
-          events: parsedWidget.fieldsByType.events.length,
+      const billing = await executeCommerceTool({
+        toolCode: "umg_to_verse",
+        payload: {
+          widget_name: parsedWidget.widgetName,
+          fields_total: parsedWidget.fields.length,
         },
       });
-      setHistory((prev) => [saved, ...prev].slice(0, 10));
-    } catch {
-      toast({ title: t("common.error"), description: t("widgetKit.historySaveError"), variant: "destructive" });
+      operationId = String(billing?.operation_id || "");
+
+      const output = generateVerseOutput(parsedWidget);
+      setGenerated(output);
+      setStatus("ready");
+
+      if (!saveHistory) return;
+
+      try {
+        const saved = await saveWidgetKitHistory({
+          tool: "umg-verse",
+          name: `${parsedWidget.widgetName}.uasset`,
+          data: parsedWidget,
+          meta: {
+            totalFields: parsedWidget.fields.length,
+            messages: parsedWidget.fieldsByType.messages.length,
+            booleans: parsedWidget.fieldsByType.booleans.length,
+            floats: parsedWidget.fieldsByType.floats.length,
+            integers: parsedWidget.fieldsByType.integers.length,
+            assets: parsedWidget.fieldsByType.assets.length,
+            events: parsedWidget.fieldsByType.events.length,
+          },
+        });
+        setHistory((prev) => [saved, ...prev].slice(0, 10));
+      } catch {
+        toast({ title: t("common.error"), description: t("widgetKit.historySaveError"), variant: "destructive" });
+      }
+    } catch (error) {
+      const code = String((error as any)?.payload?.error_code || "");
+      if (operationId) {
+        try {
+          await reverseCommerceOperation({
+            operationId,
+            reason: "client_local_tool_failed_umg_to_verse",
+          });
+        } catch {
+          // best effort
+        }
+      }
+      toast({
+        title: t("common.error"),
+        description: code === "INSUFFICIENT_CREDITS"
+          ? "Saldo insuficiente. Compre creditos extras para continuar."
+          : String((error as Error)?.message || "Falha ao consumir creditos."),
+        variant: "destructive",
+      });
     }
   }
 

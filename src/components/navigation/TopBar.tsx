@@ -290,7 +290,7 @@ export function TopBar({ context }: TopBarProps) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64">
                 <DropdownMenuItem asChild>
-                  <Link to="/app">
+                  <Link to="/app/billing">
                     <User className="h-4 w-4" />
                     {t("nav.account")}
                   </Link>
