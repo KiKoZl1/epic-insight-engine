@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers the development workflow for Epic Insight Engine, including setup, coding standards, testing, and contribution guidelines.
+This guide covers the development workflow for UEFNToolkit, including setup, coding standards, testing, and contribution guidelines.
 
 ## Development Environment
 
@@ -34,7 +34,7 @@ Recommended extensions for this project:
 ```bash
 # Clone repository
 git clone <repository-url>
-cd epic-insight-engine
+cd uefntoolkit
 
 # Install dependencies
 npm install

@@ -87,10 +87,10 @@ type AdminCommerceResponse = {
 };
 
 const TOOL_LABELS: Record<string, string> = {
-  surprise_gen: "Surprise Gen",
-  edit_studio: "Surprise Rewrite",
-  camera_control: "Surprise Vision",
-  layer_decomposition: "Surprise Intent",
+  surprise_gen: "Generate",
+  edit_studio: "Edit Studio",
+  camera_control: "Camera Control",
+  layer_decomposition: "Layer Decomposition",
   psd_to_umg: "PSD para UMG",
   umg_to_verse: "UMG para Verse",
 };

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers deploying Epic Insight Engine to production environments. The application consists of a React frontend, Supabase backend, and optional Ralph AI system.
+This guide covers deploying UEFNToolkit to production environments. The application consists of a React frontend, Supabase backend, and optional Ralph AI system.
 
 ## Deployment Architecture
 
@@ -49,7 +49,7 @@ This guide covers deploying Epic Insight Engine to production environments. The 
 
 ```bash
 git clone <repository-url>
-cd epic-insight-engine
+cd uefntoolkit
 ```
 
 ### 2. Install Dependencies

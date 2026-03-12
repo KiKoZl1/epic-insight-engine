@@ -1,8 +1,8 @@
 # 01 - Project Overview
 
-## What is Epic Insight Engine^
+## What is UEFNToolkit^
 
-**Epic Insight Engine** is a comprehensive data analytics platform designed specifically for **Fortnite's User-Generated Content (UGC) ecosystem**. It provides deep insights into island metrics, trends, rankings, and AI-powered analysis for creators, analysts, and platform operators.
+**UEFNToolkit** is a comprehensive data analytics platform designed specifically for **Fortnite's User-Generated Content (UGC) ecosystem**. It provides deep insights into island metrics, trends, rankings, and AI-powered analysis for creators, analysts, and platform operators.
 
 ## 🎯 Project Goals
 

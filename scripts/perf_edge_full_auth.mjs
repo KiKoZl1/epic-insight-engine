@@ -44,7 +44,7 @@ async function ensureAdminSession(env) {
   const appUrl = must(env, "VITE_SUPABASE_URL");
   const publishableKey = must(env, "VITE_SUPABASE_PUBLISHABLE_KEY");
   const serviceRole = must(env, "SUPABASE_SERVICE_ROLE_KEY");
-  const email = String(env.PERF_ADMIN_EMAIL || "perf-admin@epic-insight.local").trim();
+  const email = String(env.PERF_ADMIN_EMAIL || "perf-admin@uefntoolkit.local").trim();
   const password = String(env.PERF_ADMIN_PASSWORD || "PerfAdmin#2026!").trim();
 
   const service = createClient(appUrl, serviceRole, { auth: { autoRefreshToken: false, persistSession: false } });
@@ -237,4 +237,5 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
 

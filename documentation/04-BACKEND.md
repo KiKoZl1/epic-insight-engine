@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Epic Insight Engine backend is built on **Supabase**, a Backend-as-a-Service platform providing PostgreSQL database, authentication, Edge Functions, and real-time capabilities.
+The UEFNToolkit backend is built on **Supabase**, a Backend-as-a-Service platform providing PostgreSQL database, authentication, Edge Functions, and real-time capabilities.
 
 ## Backend Architecture
 

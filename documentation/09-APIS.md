@@ -2,13 +2,13 @@
 
 ## Overview
 
-Epic Insight Engine integrates with multiple external APIs for data collection, AI processing, and backend services. This document details all APIs used, their endpoints, authentication methods, and usage patterns.
+UEFNToolkit integrates with multiple external APIs for data collection, AI processing, and backend services. This document details all APIs used, their endpoints, authentication methods, and usage patterns.
 
 ## API Architecture
 
 ```
 +-------------------------------------------------------------+
-|                    EPIC INSIGHT ENGINE                       |
+|                         UEFNTOOLKIT                          |
 |                                                              |
 |  +--------------+  +--------------+  +--------------+       |
 |  |   Frontend   |  |   Backend    |  |    Ralph     |       |
@@ -223,7 +223,7 @@ POST /islands/metrics
 | 500 | Server Error | Retry with exponential backoff |
 | 503 | Service Unavailable | Wait and retry |
 
-### Usage in Epic Insight Engine
+### Usage in UEFNToolkit
 
 **Edge Functions Using Fortnite API**:
 - `discover-collector` - Fetches island catalog and metrics
@@ -550,7 +550,7 @@ Content-Type: application/json
 | Tier 1 | 100 | 1,000,000 |
 | Tier 2 | 500 | 5,000,000 |
 
-### Usage in Epic Insight Engine
+### Usage in UEFNToolkit
 
 **Functions Using OpenAI**:
 - `discover-report-ai` - Generates weekly report narratives
@@ -622,7 +622,7 @@ Content-Type: application/json
 | Chat | 1000 RPM |
 | Embeddings | 2000 RPM |
 
-### Usage in Epic Insight Engine
+### Usage in UEFNToolkit
 
 **Primary Use**: Ralph AI system memory operations and narrative generation (preferred over OpenAI for cost savings).
 

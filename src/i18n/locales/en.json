@@ -112,7 +112,7 @@
   "home": {
     "badge": "Unified hub for Fortnite UEFN creators",
     "title": "Tools to scale with",
-    "titleHighlight": "UEFN Tools",
+    "titleHighlight": "UEFNToolkit",
     "subtitle": "A single hub for discovery, analytics, thumbnail and widget tooling.",
     "ctaPrimary": "Open Discover",
     "ctaSecondary": "Explore Analytics Tools",
@@ -145,9 +145,9 @@
     "hubGridSubtitle": "Every hub in one panel so users can jump into the right flow fast.",
     "hubCardOpenHub": "Open hub",
     "ctaSectionTitle": "Ready to operate like a studio?",
-    "ctaSectionDesc": "UEFN Tools connects intelligence, production and operations in one environment.",
+    "ctaSectionDesc": "UEFNToolkit connects intelligence, production and operations in one environment.",
     "ctaSectionBtn": "Create account",
-    "poweredByLine": "Powered by Surprise Co for UEFN creators at scale."
+    "poweredByLine": "Powered by UEFNToolkit for UEFN creators at scale."
   },
   "auth": {
     "goBack": "Go back",
@@ -810,7 +810,7 @@
     "goHome": "Return to Home"
   },
   "footer": {
-    "copyright": "? 2026 UEFN Tools. Platform for Fortnite UEFN creators."
+    "copyright": "? 2026 UEFNToolkit. Platform for Fortnite UEFN creators."
   },
   "admin": {
     "panel": "Admin Panel",
@@ -1063,8 +1063,8 @@
     "noReportsDesc": "Click 'Generate Report' to create the first weekly analysis."
   },
   "brand": {
-    "name": "UEFN Tools",
-    "poweredBy": "Powered by Surprise Co."
+    "name": "UEFNToolkit",
+    "poweredBy": "Powered by UEFNToolkit."
   },
   "analyticsTools": {
     "subtitle": "Intelligence suite to monitor island performance, visibility and trends."

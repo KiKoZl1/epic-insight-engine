@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 
 from ml.tgis.pipelines._thumb_naming import build_thumb_file_name
+from ml.tgis.pipelines._brand import openrouter_referer, openrouter_title
 from ml.tgis.runtime import connect_db, load_runtime, load_yaml, utc_now_iso
 
 
@@ -153,8 +154,8 @@ def vision_caption(url: str, tag: str, model: str) -> str | None:
         headers={
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "https://surpriseradar.app"),
-            "X-Title": os.getenv("OPENROUTER_TITLE", "SurpriseRadar-TGIS"),
+            "HTTP-Referer": openrouter_referer(),
+            "X-Title": openrouter_title(),
         },
         json=payload,
         timeout=45,

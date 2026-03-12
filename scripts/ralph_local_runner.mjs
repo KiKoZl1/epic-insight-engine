@@ -617,7 +617,7 @@ function buildPlanPrompt(args, iteration, contextSummary, semanticSummary, activ
     : "Active feature from backlog: none (fallback to best improvement opportunity).";
 
   return [
-    "You are Ralph runner in Epic Insight Engine.",
+    "You are Ralph runner in UEFNToolkit.",
     `Mode: ${args.mode}`,
     `Iteration: ${iteration}/${args.maxIterations}`,
     `Scope: ${args.scope.join(", ")}`,
@@ -1868,3 +1868,4 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
