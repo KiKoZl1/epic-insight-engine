@@ -93,34 +93,59 @@
     "widgetKitUmgVerse": "UMG -> VerseFields",
     "widgetKitUmgVerseDesc": "Extraia campos Expose to Verse e gere scaffolding.",
     "signIn": "Entrar",
-    "getStarted": "Começar Grátis"
+    "getStarted": "Começar Grátis",
+    "discoverDesc": "Leitura ao vivo dos sinais e movimentacoes do Discovery.",
+    "reportsDesc": "Relat?rios semanais com ranking, reten??o e tend?ncias.",
+    "analyticsTools": "Analytics Tools",
+    "analyticsToolsDesc": "Island Analytics, Island Lookup e Reports em um unico fluxo.",
+    "analyticsIslandAnalytics": "Island Analytics",
+    "analyticsIslandAnalyticsDesc": "Dashboard operacional para seus projetos e uploads.",
+    "analyticsIslandLookup": "Island Lookup",
+    "analyticsIslandLookupDesc": "Busca de ilhas por codigo com metricas publicas em tempo real.",
+    "thumbToolsDesc": "Suite completa para geracao e pos-producao de thumbnails.",
+    "widgetKitDesc": "Ferramentas de interface para acelerar fluxos UEFN.",
+    "sectionAnalyticsTools": "Analytics Tools",
+    "sectionThumbTools": "Thumb Tools"
   },
   "home": {
-    "badge": "Weekly Discovery Intelligence for Fortnite UGC",
-    "title": "O radar do",
-    "titleHighlight": "Discovery",
-    "subtitle": "Reports semanais, analytics de ilhas e lookup em tempo real — tudo para criadores de Fortnite dominarem o ecossistema.",
-    "ctaReport": "Ver Último Report",
-    "ctaSignup": "Criar Conta",
-    "toolsTitle": "3 Ferramentas Poderosas",
-    "tool1Title": "Weekly Reports",
-    "tool1Desc": "Relatórios semanais públicos do ecossistema Discovery: rankings, retenção, categorias e tendências.",
-    "tool1Cta": "Ver Reports",
-    "tool2Title": "Island Lookup",
-    "tool2Desc": "Pesquise qualquer ilha pública por código e veja métricas em tempo real direto da API da Epic.",
-    "tool2Cta": "Pesquisar Ilha",
-    "tool3Title": "CSV Analytics",
-    "tool3Desc": "Faça upload do ZIP exportado do Creator Portal e receba análise completa com IA.",
-    "tool3Cta": "Analisar Dados",
-    "feat1Title": "Dashboard Visual",
-    "feat1Desc": "Gráficos, rankings e KPIs visuais — nada de só texto.",
-    "feat2Title": "IA Analista",
-    "feat2Desc": "Narrativas e diagnósticos gerados por IA para cada seção.",
-    "feat3Title": "Dados em Tempo Real",
-    "feat3Desc": "API pública da Epic integrada para métricas live.",
-    "ctaSectionTitle": "Pronto para dominar o Discovery?",
-    "ctaSectionDesc": "Crie sua conta e acesse todas as ferramentas gratuitamente.",
-    "ctaSectionBtn": "Criar Conta Grátis"
+    "badge": "Hub unificado para creators de Fortnite UEFN",
+    "title": "Ferramentas para crescer com",
+    "titleHighlight": "UEFN Tools",
+    "subtitle": "Um hub para discovery, analytics, thumbnail e widget tooling em uma unica plataforma.",
+    "ctaPrimary": "Abrir Discover",
+    "ctaSecondary": "Explorar Analytics Tools",
+    "heroStatOne": "Discover live para leitura de oportunidade",
+    "heroStatTwo": "Hubs publicos por categoria",
+    "heroStatThree": "Fluxos protegidos dentro do app",
+    "liveDeskTitle": "Cockpit de execucao",
+    "liveDeskSubtitle": "Escolha a suite certa para cada etapa do seu fluxo",
+    "liveDeskDescription": "Navegue por hubs publicos, entre nas subtools e mantenha tudo no mesmo ecossistema.",
+    "carouselTitle": "Suites com objetivo claro",
+    "carouselSubtitle": "Cada categoria tem papel definido: achar oportunidade, produzir rapido e operar com consistencia.",
+    "slideBadge": "Suite em destaque",
+    "slideCta": "Abrir hub da categoria",
+    "slideToolsTitle": "Ferramentas da suite",
+    "carouselMeta": "Suite {{index}} de {{total}}",
+    "carouselDotsAria": "Navegacao do carrossel de categorias",
+    "carouselDot": "Ir para slide {{index}}",
+    "toolsListCtaPublic": "Acessar",
+    "toolsListCtaProtected": "Entrar",
+    "workflowTitle": "Como o creator usa no dia a dia",
+    "workflowSubtitle": "Leitura de sinal, producao de assets e iteracao continua no mesmo stack.",
+    "stepLabel": "Passo {{index}}",
+    "stepDiscoverTitle": "Descubra sinais e contexto",
+    "stepDiscoverDesc": "Monitore Discovery, leia trends e identifique oportunidades por categoria.",
+    "stepBuildTitle": "Produza com velocidade",
+    "stepBuildDesc": "Gere thumbnails, ajuste camera, edite assets e acelere entregas visuais.",
+    "stepShipTitle": "Publique com operacao",
+    "stepShipDesc": "Transforme insights em execucao com fluxo consistente de ferramentas.",
+    "hubGridTitle": "Mapa completo de categorias",
+    "hubGridSubtitle": "Todos os hubs em um unico painel para entrar rapido no fluxo certo.",
+    "hubCardOpenHub": "Abrir hub",
+    "ctaSectionTitle": "Pronto para operar como estudio?",
+    "ctaSectionDesc": "UEFN Tools conecta inteligencia, producao e operacao no mesmo ambiente.",
+    "ctaSectionBtn": "Criar conta",
+    "poweredByLine": "Powered by Surprise Co para creators UEFN em escala."
   },
   "auth": {
     "goBack": "Voltar",
@@ -146,7 +171,10 @@
     "createAccount": "Criar conta",
     "login": "Entrar",
     "googleSignIn": "Entrar com Google",
-    "googleError": "Erro ao entrar com Google"
+    "googleError": "Erro ao entrar com Google",
+    "gateTitle": "Faca login para continuar",
+    "gateDescription": "Entre ou crie sua conta para acessar esta ferramenta.",
+    "gateDescriptionWithFeature": "Entre ou crie sua conta para acessar {{feature}}."
   },
   "reports": {
     "title": "Weekly Reports",
@@ -780,7 +808,7 @@
     "goHome": "Voltar ao Início"
   },
   "footer": {
-    "copyright": "© 2026 Surprise Radar. Weekly Discovery Intelligence for Fortnite UGC."
+    "copyright": "? 2026 UEFN Tools. Plataforma para creators de Fortnite UEFN."
   },
   "admin": {
     "panel": "Admin Panel",
@@ -1031,5 +1059,12 @@
     "deleteDesc": "O relatório será deletado permanentemente. Esta ação não pode ser desfeita.",
     "noReports": "Nenhum relatório gerado ainda",
     "noReportsDesc": "Clique em 'Gerar Report' para criar a primeira análise semanal."
+  },
+  "brand": {
+    "name": "UEFN Tools",
+    "poweredBy": "Powered by Surprise Co."
+  },
+  "analyticsTools": {
+    "subtitle": "Conjunto de intelig?ncia para monitorar performance, visibilidade e tend?ncia das ilhas."
   }
 }

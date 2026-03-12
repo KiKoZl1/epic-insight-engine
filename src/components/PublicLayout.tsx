@@ -1,7 +1,7 @@
 import { Outlet, Link } from "react-router-dom";
-import { Radar } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { TopBar } from "@/components/navigation/TopBar";
+import { PlatformBrand } from "@/components/brand/PlatformBrand";
 
 export default function PublicLayout() {
   const { t } = useTranslation();
@@ -16,14 +16,14 @@ export default function PublicLayout() {
 
       <footer className="px-6 py-8 border-t border-border/50">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Radar className="h-4 w-4 text-primary" />
-            <span className="text-sm font-display font-semibold">SurpriseRadar</span>
-          </div>
+          <PlatformBrand iconClassName="h-7 w-7" textClassName="text-sm" />
           <p className="text-xs text-muted-foreground">{t("footer.copyright")}</p>
-          <div className="flex gap-4 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-muted-foreground">
             <Link to="/reports" className="hover:text-foreground transition-colors">{t("nav.reports")}</Link>
             <Link to="/discover" className="hover:text-foreground transition-colors">{t("nav.discover")}</Link>
+            <a href="https://www.surpriseugc.com/" target="_blank" rel="noreferrer" className="hover:text-foreground transition-colors">
+              {t("brand.poweredBy")}
+            </a>
           </div>
         </div>
       </footer>
