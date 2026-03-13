@@ -1,49 +1,93 @@
-# Docs Index (`docs/`)
+﻿# UEFN Toolkit Documentation Index
 
-This folder is for operational and specialized documents.
+This directory is the technical source of truth for architecture, operations, tooling, and maintenance.
 
-Primary product/platform documentation is in:
-- `documentation/README.md`
+All claims are expected to be code-evidence based.
 
-## Scope of `docs/`
-- Ralph operations and runbooks (`docs/RALPH_*`, `docs/ralph/*`)
-- Specialized deep dives not in the base manual
-- Historical documents in `docs/archive/`
+## 0. Naming Policy
 
-## Legacy Compatibility Files
-The files below are kept only as pointers for old links:
-- `docs/SETUP.md`
-- `docs/ARCHITECTURE.md`
-- `docs/DATABASE.md`
-- `docs/USAGE.md`
-- `docs/CONTRIBUTING.md`
+Use only `UEFN Toolkit` as the platform name in all docs.
 
-## Ralph
-- `docs/RALPH_LOCAL_QUICKSTART.md`
-- `docs/RALPH_OPERATING_MODEL.md`
-- `docs/RALPH_GATES_AND_SLO.md`
-- `docs/RALPH_RUNBOOKS.md`
-- `docs/RALPH_SEMANTIC_MEMORY.md`
-- `docs/RALPH_BRANCH_STRATEGY_MAIN_ONLY.md`
-- `docs/RALPH_IMPLEMENTATION_CHECKLIST.md`
-- `docs/RALPH_MEMORY_CONTEXT.md`
-- `docs/RALPH_SITE_IMPROVEMENT_PROMPT.md`
-- `docs/ralph/PRD_APP_VALUE_AND_DATA_SPECIALIST.md`
-- `docs/ralph/feature_backlog.json`
+## 1. Start Here
 
-## Specialized
-- `docs/APP_DATA_SPLIT_CLOUDFLARE_PRIVATE_RUNBOOK.md`
-- `docs/DPPI_PRD_FINAL_v2.md`
-- `docs/DPPI_HETZNER_CX22_RUNBOOK.md`
-- `docs/TGIS_PRD_FINAL_v1.md`
-- `docs/TGIS_CAPTION_PLAN.md`
-- `docs/TGIS_RUNBOOK.md`
-- `docs/TGIS_FIRST_TRAINING_GUIDE.md`
-- `docs/TGIS_ZIMAGE_DETURBO_MIGRATION.md`
-- `docs/discover-panel-intelligence-algorithms.md`
-- `docs/WEEKLY_PIPELINE_TUNING.md`
-- `docs/LINKS_SERVICE_MNEMONIC_INFO.md`
-- `docs/FIRECRAWL_FNGG_FUTURE_PLAN.md`
+1. `../README.md` for global architecture, setup, and deployment entrypoints.
+2. `DEVELOPER_GUIDE.md` for contributor workflows.
+3. `SYSTEM_COVERAGE_MATRIX.md` for system-to-document mapping.
 
-## Archive
-- `docs/archive/README.md`
+## 2. Platform and Product Surface Docs
+
+- `TOOLS_CATALOG.md`
+  - Cross-tool matrix, commerce contract, dispatch model, and discrepancies.
+
+- `tools/README.md`
+  - Deep-dive index for every tool.
+
+- `ADMIN_CENTER.md`
+  - Admin route map, role gates, UI data sources, and operational dependencies.
+
+## 3. LLM and ML Domain Docs
+
+- `DDPI_ML_SYSTEM.md`
+  - DPPI data pipeline, training, inference, releases, and worker runtime.
+
+- `TGIS_LLM_ML_SYSTEM.md`
+  - TGIS generation flows, LLM prompt system, model/training lifecycle, and admin operations.
+
+- `RALPH_SYSTEM.md`
+  - Ralph runtime, safety model, memory architecture, and operations scripts.
+
+- `LLM_ML_RUNBOOK.md`
+  - Operator procedures for runtime health, training tasks, and recovery.
+
+## 4. API and Backend Docs
+
+- `BACKEND_A.md`
+- `BACKEND_B_COMMERCE.md`
+- `openapi-backend-a.yaml`
+- `openapi-backend-b-commerce.yaml`
+
+## 5. Data, Infra, and Ops Docs
+
+- `DATABASE.md`
+- `INFRASTRUCTURE.md`
+- `DEPLOYMENT_RUNBOOK.md`
+- `OPERATIONS_RUNBOOK.md`
+- `PAYMENTS_GATEWAY.md`
+
+## 6. Design and Evolution Standards
+
+- `BRAND_AND_DESIGN_STANDARDS.md`
+  - Brand naming, token system, typography, nav patterns, and UI consistency rules.
+
+- `TOOL_ARCHITECTURE_TEMPLATE.md`
+  - Engineering + documentation template for building new tools.
+
+## 7. Architecture Decisions
+
+- `ADR-001-edge-functions-runtime.md`
+
+## 8. System Coverage Snapshot
+
+The current doc set explicitly covers:
+
+- public discover/report surfaces
+- authenticated analytics and tools surfaces
+- full tool hub inventory (analytics/thumb/widget)
+- admin center (reports/exposure/intel/panels/dppi/tgis/commerce)
+- DPPI/TGIS/Ralph runtime and ML workflows
+- infra, database, payments, and deployment operations
+- brand/design and future tool implementation standards
+
+Evidence:
+
+- Public, app, and admin route trees. (source: src/App.tsx:103, src/App.tsx:116, src/App.tsx:140)
+- Tool hubs and routes. (source: src/tool-hubs/registry.ts:23)
+- Edge function domains. (source: supabase/config.toml:3)
+- ML runtimes and scripts. (source: ml/dppi/runtime.py:1, ml/tgis/runtime/worker_tick.py:1, scripts/ralph_local_runner.py:1)
+
+## 9. Documentation Rules
+
+- Every implementation claim should include `(source: file:line)`.
+- If evidence is unavailable, mark as `Not determined from code`.
+- Do not infer hidden business intent.
+- Update index links when adding/removing docs.
