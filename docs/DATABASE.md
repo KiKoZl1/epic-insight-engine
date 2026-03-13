@@ -2,7 +2,7 @@
 
 ## Schema Completo (App DB)
 - Fonte autoritativa: migrations em `supabase/migrations/*.sql`.
-- Escopo Data DB remoto: Não determinado a partir do código local (somente bridge/env foi encontrado).
+- Escopo Data DB remoto: NÃ£o determinado a partir do cÃ³digo local (somente bridge/env foi encontrado).
 
 ## Tabelas, Campos e Tipos
 
@@ -1516,7 +1516,7 @@ Fonte: supabase/migrations/20260305010000_widgetkit_history.sql
 - meta_json: jsonb NOT NULL DEFAULT '{}'::jsonb
 - created_at: timestamptz NOT NULL DEFAULT now()
 
-## Relações (detectadas por REFERENCES em CREATE TABLE)
+## RelaÃ§Ãµes (detectadas por REFERENCES em CREATE TABLE)
 - public.profiles -> auth.users (fonte: supabase/migrations/20260211033736_e44ba8f2-1f73-42da-b033-e6f42d1e57d9.sql)
 - public.projects -> auth.users (fonte: supabase/migrations/20260211033736_e44ba8f2-1f73-42da-b033-e6f42d1e57d9.sql)
 - public.uploads -> public.projects (fonte: supabase/migrations/20260211033736_e44ba8f2-1f73-42da-b033-e6f42d1e57d9.sql)
@@ -1586,7 +1586,7 @@ Fonte: supabase/migrations/20260305010000_widgetkit_history.sql
 - public.commerce_abuse_signals -> auth.users (fonte: supabase/migrations/20260312083000_commerce_foundation_v1.sql)
 - public.commerce_events -> auth.users (fonte: supabase/migrations/20260312083000_commerce_foundation_v1.sql)
 
-## Queries Críticas
-- RPCs usadas em múltiplos pontos: `get_metadata_pipeline_stats`, `get_link_graph_stats`, `get_lookup_pipeline_stats`, `get_ralph_health`, `get_tgis_training_candidates`. (fonte: src/pages/admin/AdminOverview.tsx:692, src/pages/admin/tgis/AdminTgisDataset.tsx:23)
+## Queries CrÃ­ticas
+- RPCs usadas em mÃºltiplos pontos: `get_metadata_pipeline_stats`, `get_link_graph_stats`, `get_lookup_pipeline_stats`, `get_ralph_health`, `get_tgis_training_candidates`. (fonte: src/pages/admin/AdminOverview.tsx:692, src/pages/admin/tgis/AdminTgisDataset.tsx:23)
 - RPCs de side-effect financeiro: `commerce_admin_adjust_credits`, `commerce_weekly_release_job`, `commerce_reconcile_job`. (fonte: supabase/functions/commerce/index.ts:1428, supabase/functions/commerce/index.ts:1703)
-- `x-doc-status: incomplete` para plano de execução/index tuning por query sem banco rodando nesta execução.
+- `x-doc-status: incomplete` para plano de execuÃ§Ã£o/index tuning por query sem banco rodando nesta execuÃ§Ã£o.

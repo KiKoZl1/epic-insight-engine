@@ -1,8 +1,8 @@
 # Documentation Index
 
-Este diretório concentra a documentação técnica do projeto com foco em manutenção.
+Este diretÃ³rio concentra a documentaÃ§Ã£o tÃ©cnica do projeto com foco em manutenÃ§Ã£o.
 
-## Onboarding e visão geral
+## Onboarding e visÃ£o geral
 - `../README.md`
 - `DEVELOPER_GUIDE.md`
 
@@ -17,7 +17,7 @@ Este diretório concentra a documentação técnica do projeto com foco em manutençã
 - `TOOLS_CATALOG.md`
 - `PAYMENTS_GATEWAY.md`
 
-## Operação e deploy
+## OperaÃ§Ã£o e deploy
 - `DEPLOYMENT_RUNBOOK.md`
 - `OPERATIONS_RUNBOOK.md`
 - `INFRASTRUCTURE.md`
@@ -25,6 +25,6 @@ Este diretório concentra a documentação técnica do projeto com foco em manutençã
 ## Dados
 - `DATABASE.md`
 
-## Padrão editorial
-- Claims sempre com evidência (`arquivo:linha`) quando determinável.
-- Quando não há evidência suficiente no repositório: marcar “Não determinado a partir do código”.
+## PadrÃ£o editorial
+- Claims sempre com evidÃªncia (`arquivo:linha`) quando determinÃ¡vel.
+- Quando nÃ£o hÃ¡ evidÃªncia suficiente no repositÃ³rio: marcar â€œNÃ£o determinado a partir do cÃ³digoâ€.

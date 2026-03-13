@@ -1,13 +1,13 @@
 # Infrastructure & Configuration
 
-## 1. Invent·rio de infraestrutura versionada
+## 1. Invent√°rio de infraestrutura versionada
 ### 1.1 Frontend runtime
 - Vite dev server (`host ::`, `port 8080`). (fonte: `vite.config.ts:7`)
-- Build est·tico via `vite build`. (fonte: `package.json:8`)
+- Build est√°tico via `vite build`. (fonte: `package.json:8`)
 
 ### 1.2 Backend runtime
 - Supabase Edge Functions em `supabase/functions/*`.
-- Controle de `verify_jwt` por funÁ„o em `supabase/config.toml`.
+- Controle de `verify_jwt` por fun√ß√£o em `supabase/config.toml`.
 
 (fonte: `supabase/config.toml:3`)
 
@@ -23,7 +23,7 @@
 
 (fonte: `scripts/setup_tgis.sh:80`)
 
-## 2. Vari·veis de ambiente por domÌnio
+## 2. Vari√°veis de ambiente por dom√≠nio
 ## 2.1 Core app
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
@@ -78,34 +78,34 @@
 - Supabase Functions: `https://<project-ref>.supabase.co/functions/v1/<function-name>`.
   - Exemplo deploy command no script de tuning. (fonte: `scripts/set-discover-metrics-profile.ps1:145`)
 
-## 4. Topologia de comunicaÁ„o
+## 4. Topologia de comunica√ß√£o
 1. Browser -> Frontend React
 2. Frontend -> Supabase Auth + PostgREST + Functions
 3. Discover Functions -> (opcional) Data Supabase bridge
 4. Commerce Function -> Stripe API
 5. ML workers -> Supabase DB + artefatos locais/cloud
 
-EvidÍncia:
+Evid√™ncia:
 - Supabase client frontend. (fonte: `src/integrations/supabase/client.ts:11`)
 - bridge forwarding. (fonte: `supabase/functions/_shared/dataBridge.ts:107`)
 - Stripe requests backend. (fonte: `supabase/functions/commerce/index.ts:398`)
 
-## 5. SeguranÁa de configuraÁ„o
-- `verify_jwt` n„o È uniforme; revisar funÁ„o por funÁ„o. (fonte: `supabase/config.toml:7`)
-- Commerce implementa auth explÌcita de usu·rio/admin/internal. (fonte: `supabase/functions/commerce/index.ts:280`)
+## 5. Seguran√ßa de configura√ß√£o
+- `verify_jwt` n√£o √© uniforme; revisar fun√ß√£o por fun√ß√£o. (fonte: `supabase/config.toml:7`)
+- Commerce implementa auth expl√≠cita de usu√°rio/admin/internal. (fonte: `supabase/functions/commerce/index.ts:280`)
 - Fingerprint de dispositivo enviado no client commerce (`x-device-fingerprint-hash`). (fonte: `src/lib/commerce/client.ts:56`)
 
-## 6. AutomaÁ„o/ops scripts relevantes
+## 6. Automa√ß√£o/ops scripts relevantes
 - `scripts/migration-set-target.ps1`: troca project target de forma segura com backup.
-- `scripts/set-discover-metrics-profile.ps1`: aplica tuning de mÈtricas via secrets set.
+- `scripts/set-discover-metrics-profile.ps1`: aplica tuning de m√©tricas via secrets set.
 - `scripts/sql.ps1`: executor SQL remoto via psql.
 - `scripts/export_supabase_tables.mjs`: export de tabelas para CSV.
 - `scripts/setup_tgis.sh`: setup de worker TGIS e preflight.
 
 (fonte: `scripts/migration-set-target.ps1:37`, `scripts/set-discover-metrics-profile.ps1:126`, `scripts/sql.ps1:55`, `scripts/export_supabase_tables.mjs:54`, `scripts/setup_tgis.sh:62`)
 
-## 7. Infra n„o encontrada explicitamente
+## 7. Infra n√£o encontrada explicitamente
 - Docker Compose / Kubernetes / Terraform como IaC principal.
 - Pipeline CI/CD declarativo versionado em `.github/workflows`.
 
-Status: **N„o determinado a partir do cÛdigo**.
+Status: **N√£o determinado a partir do c√≥digo**.

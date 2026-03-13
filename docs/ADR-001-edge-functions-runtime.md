@@ -4,12 +4,12 @@
 Accepted
 
 ## Context
-O backend est· implementado majoritariamente em `supabase/functions/*`, com frontend usando `supabase.functions.invoke(...)`.
+O backend est√° implementado majoritariamente em `supabase/functions/*`, com frontend usando `supabase.functions.invoke(...)`.
 (fonte: src/lib/discoverDataApi.ts:61, supabase/functions/commerce/index.ts:1555)
 
 ## Decision
-Padronizar APIs de domÌnio em Edge Functions Supabase (Discover/DPPI/TGIS/Commerce), usando Auth/DB Supabase e bridge para projeto de dados quando necess·rio.
+Padronizar APIs de dom√≠nio em Edge Functions Supabase (Discover/DPPI/TGIS/Commerce), usando Auth/DB Supabase e bridge para projeto de dados quando necess√°rio.
 
 ## Consequences
-- PrÛs: coes„o de runtime e integraÁ„o auth/db.
-- Contras: contratos HTTP majoritariamente implÌcitos no cÛdigo (necessidade de OpenAPI derivado).
+- Pr√≥s: coes√£o de runtime e integra√ß√£o auth/db.
+- Contras: contratos HTTP majoritariamente impl√≠citos no c√≥digo (necessidade de OpenAPI derivado).

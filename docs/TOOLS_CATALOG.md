@@ -1,6 +1,6 @@
 # Tools Catalog
 
-Catálogo operacional de todas as tools expostas ao usuário/admin.
+CatÃ¡logo operacional de todas as tools expostas ao usuÃ¡rio/admin.
 
 ## 1. Hubs de ferramentas
 Hubs declarados no frontend:
@@ -11,11 +11,11 @@ Hubs declarados no frontend:
 (fonte: `src/tool-hubs/registry.ts:4`)
 
 ## 2. Matriz completa de tools
-| Hub | Tool ID | Rota | Requer Auth | Tool Code (Commerce) | Custo padrão | Execução |
+| Hub | Tool ID | Rota | Requer Auth | Tool Code (Commerce) | Custo padrÃ£o | ExecuÃ§Ã£o |
 |---|---|---|---|---|---|---|
 | Analytics | island-analytics | `/app` | sim | n/a | n/a | frontend + APIs discover |
 | Analytics | island-lookup | `/app/island-lookup` | sim | n/a | n/a | `discover-island-lookup*` |
-| Analytics | reports | `/reports` | não | n/a | n/a | dados públicos |
+| Analytics | reports | `/reports` | nÃ£o | n/a | n/a | dados pÃºblicos |
 | Thumb | generate | `/app/thumb-tools/generate` | sim | `surprise_gen` | 15 | `tgis-generate` via commerce |
 | Thumb | edit-studio | `/app/thumb-tools/edit-studio` | sim | `edit_studio` | 4 | `tgis-edit-studio` via commerce |
 | Thumb | camera-control | `/app/thumb-tools/camera-control` | sim | `camera_control` | 3 | `tgis-camera-control` via commerce |
@@ -23,40 +23,40 @@ Hubs declarados no frontend:
 | WidgetKit | psd-umg | `/app/widgetkit/psd-umg` | sim | `psd_to_umg` | 2 | `client_local` (sem dispatch tgis) |
 | WidgetKit | umg-verse | `/app/widgetkit/umg-verse` | sim | `umg_to_verse` | 2 | `client_local` (sem dispatch tgis) |
 
-Evidência:
+EvidÃªncia:
 - Rotas/hubs/toolCode/requiresAuth. (fonte: `src/tool-hubs/registry.ts:24`)
-- Custos padrão. (fonte: `src/lib/commerce/toolCosts.ts:11`)
-- Mapping toolCode->função backend para tools remotas. (fonte: `supabase/functions/commerce/index.ts:36`)
+- Custos padrÃ£o. (fonte: `src/lib/commerce/toolCosts.ts:11`)
+- Mapping toolCode->funÃ§Ã£o backend para tools remotas. (fonte: `supabase/functions/commerce/index.ts:36`)
 - WidgetKit client_local. (fonte: `supabase/functions/commerce/index.ts:761`)
 
 ## 3. Regras de auth no frontend
-- Subtools sensíveis usam prompt de autenticação quando anônimo.
+- Subtools sensÃ­veis usam prompt de autenticaÃ§Ã£o quando anÃ´nimo.
 
-Evidência:
+EvidÃªncia:
 - `requiresAuth: true` em tools protegidas. (fonte: `src/tool-hubs/registry.ts:62`)
-- e2e garante prompt em anônimo ao clicar Generate. (fonte: `e2e/tool-hubs.spec.ts:15`)
+- e2e garante prompt em anÃ´nimo ao clicar Generate. (fonte: `e2e/tool-hubs.spec.ts:15`)
 
-## 4. Regras de cobrança
-### 4.1 Como custo é calculado
-- Front usa catálogo com fallback local (`DEFAULT_TOOL_COSTS`) e cache em localStorage.
+## 4. Regras de cobranÃ§a
+### 4.1 Como custo Ã© calculado
+- Front usa catÃ¡logo com fallback local (`DEFAULT_TOOL_COSTS`) e cache em localStorage.
 - Front consulta `/functions/v1/commerce/catalog/tool-costs` para custos atuais.
 
-Evidência:
+EvidÃªncia:
 - fallback costs e cache TTL. (fonte: `src/lib/commerce/toolCosts.ts:11`, `src/lib/commerce/toolCosts.ts:30`)
-- endpoint de catálogo. (fonte: `src/lib/commerce/toolCosts.ts:91`)
+- endpoint de catÃ¡logo. (fonte: `src/lib/commerce/toolCosts.ts:91`)
 
-### 4.2 Execução cobrada
+### 4.2 ExecuÃ§Ã£o cobrada
 - Front envia `Idempotency-Key` e `x-device-fingerprint-hash`.
-- Backend debita créditos (`commerce_debit_tool_credits`).
-- Falhas qualificáveis podem auto-reverter operação.
+- Backend debita crÃ©ditos (`commerce_debit_tool_credits`).
+- Falhas qualificÃ¡veis podem auto-reverter operaÃ§Ã£o.
 
-Evidência:
-- headers idempotência/fingerprint. (fonte: `src/lib/commerce/client.ts:56`)
-- débito RPC. (fonte: `supabase/functions/commerce/index.ts:735`)
+EvidÃªncia:
+- headers idempotÃªncia/fingerprint. (fonte: `src/lib/commerce/client.ts:56`)
+- dÃ©bito RPC. (fonte: `supabase/functions/commerce/index.ts:735`)
 - auto-reversal. (fonte: `supabase/functions/commerce/index.ts:818`)
 
-## 5. Endpoints de execução relacionados
-### 5.1 Endpoints de usuário
+## 5. Endpoints de execuÃ§Ã£o relacionados
+### 5.1 Endpoints de usuÃ¡rio
 - `POST /functions/v1/commerce/tools/execute`
 - `POST /functions/v1/commerce/tools/reverse`
 - `GET /functions/v1/commerce/me/credits`
@@ -64,9 +64,9 @@ Evidência:
 - `GET /functions/v1/commerce/me/ledger`
 - `GET /functions/v1/commerce/me/usage-summary`
 
-Evidência: `supabase/functions/commerce/index.ts:1567`.
+EvidÃªncia: `supabase/functions/commerce/index.ts:1567`.
 
-### 5.2 Endpoints de administração financeira
+### 5.2 Endpoints de administraÃ§Ã£o financeira
 - `GET /functions/v1/commerce/admin/user-lookup`
 - `GET /functions/v1/commerce/admin/user/{userId}`
 - `POST /functions/v1/commerce/admin/credits/grant`
@@ -74,7 +74,7 @@ Evidência: `supabase/functions/commerce/index.ts:1567`.
 - `POST /functions/v1/commerce/admin/user/{userId}/abuse-review`
 - `POST /functions/v1/commerce/admin/user/{userId}/suspend`
 
-Evidência: `supabase/functions/commerce/index.ts:1662`.
+EvidÃªncia: `supabase/functions/commerce/index.ts:1662`.
 
 ## 6. Onde manter cada parte
 ### Frontend UX de tools
@@ -83,7 +83,7 @@ Evidência: `supabase/functions/commerce/index.ts:1662`.
 - `src/pages/thumb-tools/*`
 - `src/pages/widgetkit/*`
 
-### Regras de custos e cobrança
+### Regras de custos e cobranÃ§a
 - `src/lib/commerce/toolCosts.ts`
 - `src/lib/commerce/client.ts`
 - `supabase/functions/commerce/index.ts`
@@ -92,13 +92,13 @@ Evidência: `supabase/functions/commerce/index.ts:1662`.
 - `supabase/functions/_shared/commerceTools.ts`
 
 ## 7. Checklist quando adicionar uma nova tool
-1. Adicionar nova route/página em `src/App.tsx` e/ou hub.
+1. Adicionar nova route/pÃ¡gina em `src/App.tsx` e/ou hub.
 2. Adicionar item no `src/tool-hubs/registry.ts`.
 3. Adicionar `toolCode` em tipos/constantes de custos.
-4. Definir custo padrão e chave de config.
+4. Definir custo padrÃ£o e chave de config.
 5. Implementar dispatch no commerce backend (ou marcar `client_local`).
-6. Ajustar UI de créditos/ledger se necessário.
+6. Ajustar UI de crÃ©ditos/ledger se necessÃ¡rio.
 7. Atualizar e2e (`e2e/tool-hubs.spec.ts`) e docs.
 
-Evidência base:
+EvidÃªncia base:
 - Estrutura atual de tool lifecycle. (fonte: `src/tool-hubs/registry.ts:24`, `src/lib/commerce/toolCosts.ts:20`, `supabase/functions/commerce/index.ts:717`)

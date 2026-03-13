@@ -1,11 +1,11 @@
 # Backend B - Commerce Edge API
 
 ## Arquitetura Geral
-- API HTTP multiplexada em uma ˙nica funÁ„o Edge (`commerce`) com roteamento interno por sufixo de path. (fonte: supabase/functions/commerce/index.ts:149, supabase/functions/commerce/index.ts:1555)
-- DomÌnios: cat·logo de custos, crÈditos/carteira, execuÁ„o/revers„o de ferramentas, checkout/webhook Stripe, administraÁ„o e jobs internos. (fonte: supabase/functions/commerce/index.ts:1563)
+- API HTTP multiplexada em uma √∫nica fun√ß√£o Edge (`commerce`) com roteamento interno por sufixo de path. (fonte: supabase/functions/commerce/index.ts:149, supabase/functions/commerce/index.ts:1555)
+- Dom√≠nios: cat√°logo de custos, cr√©ditos/carteira, execu√ß√£o/revers√£o de ferramentas, checkout/webhook Stripe, administra√ß√£o e jobs internos. (fonte: supabase/functions/commerce/index.ts:1563)
 
 ## Auth/AuthZ
-- `verify_jwt=false` na configuraÁ„o, mas a funÁ„o aplica validaÁ„o explÌcita de usu·rio/papel por rota. (fonte: supabase/config.toml:126, supabase/functions/commerce/index.ts:252)
+- `verify_jwt=false` na configura√ß√£o, mas a fun√ß√£o aplica valida√ß√£o expl√≠cita de usu√°rio/papel por rota. (fonte: supabase/config.toml:126, supabase/functions/commerce/index.ts:252)
 - Endpoints admin exigem `requireFinancialAdmin`. (fonte: supabase/functions/commerce/index.ts:276, supabase/functions/commerce/index.ts:1662)
 - Endpoints internos aceitam `x-commerce-internal-secret` ou admin. (fonte: supabase/functions/commerce/index.ts:281, supabase/functions/commerce/index.ts:1701)
 
@@ -31,6 +31,6 @@
 - `POST /functions/v1/commerce/internal/jobs/weekly-release` (internal secret or admin). Handler: `index.ts:1701`.
 - `POST /functions/v1/commerce/internal/jobs/reconcile` (internal secret or admin). Handler: `index.ts:1708`.
 
-### Campos mÌnimos n„o determinados
-- Query/body/response detalhado por endpoint: parcialmente inferÌvel, porÈm incompleto sem schema formal.
-- `x-doc-status: incomplete` aplicado para contratos detalhados n„o extraÌveis com alta confianÁa nesta execuÁ„o.
+### Campos m√≠nimos n√£o determinados
+- Query/body/response detalhado por endpoint: parcialmente infer√≠vel, por√©m incompleto sem schema formal.
+- `x-doc-status: incomplete` aplicado para contratos detalhados n√£o extra√≠veis com alta confian√ßa nesta execu√ß√£o.

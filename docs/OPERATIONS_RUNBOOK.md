@@ -1,6 +1,6 @@
 # Operations Runbook
 
-Runbook de operação contínua (monitoramento, jobs, troubleshooting e rotina de manutenção).
+Runbook de operaÃ§Ã£o contÃ­nua (monitoramento, jobs, troubleshooting e rotina de manutenÃ§Ã£o).
 
 ## 1. Comandos de rotina
 ### 1.1 App/frontend
@@ -11,9 +11,9 @@ npm run test
 npm run test:e2e
 ```
 
-Evidência: `package.json:7`.
+EvidÃªncia: `package.json:7`.
 
-### 1.2 Ralph / memória operacional
+### 1.2 Ralph / memÃ³ria operacional
 ```bash
 npm run ralph:local
 npm run ralph:loop
@@ -21,18 +21,18 @@ npm run ralph:memory:ingest
 npm run ralph:memory:query
 ```
 
-Evidência: `package.json:18`.
+EvidÃªncia: `package.json:18`.
 
-### 1.3 Migrações e dados
+### 1.3 MigraÃ§Ãµes e dados
 ```bash
 npm run migration:set-target -- -ProjectRef <ref> -SupabaseUrl <url> -PublishableKey <key>
 npm run migration:export:tables
 scripts\run-sql.bat -Query "select now();"
 ```
 
-Evidência: `package.json:22`, `scripts/sql.ps1:55`.
+EvidÃªncia: `package.json:22`, `scripts/sql.ps1:55`.
 
-## 2. Health checks mínimos
+## 2. Health checks mÃ­nimos
 ## 2.1 Frontend + rotas
 - `/`
 - `/discover`
@@ -40,22 +40,22 @@ Evidência: `package.json:22`, `scripts/sql.ps1:55`.
 - `/app` (auth)
 - `/admin` (role admin/editor)
 
-Evidência:
+EvidÃªncia:
 - rotas em `App.tsx`. (fonte: `src/App.tsx:103`)
-- smoke e2e para rotas públicas/protegidas. (fonte: `e2e/navigation-smoke.spec.ts:3`)
+- smoke e2e para rotas pÃºblicas/protegidas. (fonte: `e2e/navigation-smoke.spec.ts:3`)
 
 ## 2.2 Commerce
 - `GET /functions/v1/commerce/catalog/tool-costs`
 - `GET /functions/v1/commerce/me/credits`
-- `POST /functions/v1/commerce/tools/execute` (cenário controlado)
+- `POST /functions/v1/commerce/tools/execute` (cenÃ¡rio controlado)
 
-Evidência: `supabase/functions/commerce/index.ts:1563`.
+EvidÃªncia: `supabase/functions/commerce/index.ts:1563`.
 
 ## 2.3 Discover gateway
-- Validar operação `select` via `discover-data-api`.
+- Validar operaÃ§Ã£o `select` via `discover-data-api`.
 - Em data split habilitado, validar bridge headers/owner.
 
-Evidência:
+EvidÃªncia:
 - API gateway op payload. (fonte: `src/lib/discoverDataApi.ts:60`)
 - bridge logic. (fonte: `supabase/functions/_shared/dataBridge.ts:36`)
 
@@ -66,79 +66,79 @@ Evidência:
 
 Exigem `x-commerce-internal-secret` ou admin.
 
-Evidência: `supabase/functions/commerce/index.ts:1701`.
+EvidÃªncia: `supabase/functions/commerce/index.ts:1701`.
 
 ### 3.2 Admin cron discover
-- Função `discover-cron-admin` com modos `list/set/pause/resume`.
+- FunÃ§Ã£o `discover-cron-admin` com modos `list/set/pause/resume`.
 
-Evidência: `supabase/functions/discover-cron-admin/index.ts:108`.
+EvidÃªncia: `supabase/functions/discover-cron-admin/index.ts:108`.
 
 ### 3.3 Workers ML
 - TGIS preflight e bootstrap via `scripts/setup_tgis.sh`.
 - DPPI/TGIS unidades systemd em `ml/*/deploy/systemd`.
 
-Evidência: `scripts/setup_tgis.sh:176`.
+EvidÃªncia: `scripts/setup_tgis.sh:176`.
 
 ## 4. Alertas e sintomas comuns
 ### 4.1 Frontend redireciona `/admin` para `/app`
-Possível causa:
-- role ainda não hidratada ou usuário sem role admin/editor.
+PossÃ­vel causa:
+- role ainda nÃ£o hidratada ou usuÃ¡rio sem role admin/editor.
 
-Evidência:
+EvidÃªncia:
 - regra no `AdminRoute`. (fonte: `src/components/AdminRoute.tsx:16`)
-- helper e2e espera ativação de role admin. (fonte: `e2e/helpers/adminAuth.ts:63`)
+- helper e2e espera ativaÃ§Ã£o de role admin. (fonte: `e2e/helpers/adminAuth.ts:63`)
 
-### 4.2 Falha em execução de tool por crédito
-Possível causa:
+### 4.2 Falha em execuÃ§Ã£o de tool por crÃ©dito
+PossÃ­vel causa:
 - `INSUFFICIENT_CREDITS` (saldo insuficiente)
 - falha upstream tgis
 
-Evidência:
-- erro de crédito e recommended action. (fonte: `supabase/functions/commerce/index.ts:747`)
+EvidÃªncia:
+- erro de crÃ©dito e recommended action. (fonte: `supabase/functions/commerce/index.ts:747`)
 - retorno de erro upstream em dispatch. (fonte: `supabase/functions/commerce/index.ts:829`)
 
 ### 4.3 Falha em webhook Stripe
-Possível causa:
+PossÃ­vel causa:
 - `STRIPE_WEBHOOK_SECRET` ausente
-- assinatura inválida/timestamp fora de tolerância
+- assinatura invÃ¡lida/timestamp fora de tolerÃ¢ncia
 
-Evidência:
+EvidÃªncia:
 - checagens webhook. (fonte: `supabase/functions/commerce/index.ts:1180`, `supabase/functions/commerce/index.ts:1183`)
 
-### 4.4 SQL runner não funciona
-Possível causa:
+### 4.4 SQL runner nÃ£o funciona
+PossÃ­vel causa:
 - `SUPABASE_DB_URL` ausente
-- `psql` não instalado
+- `psql` nÃ£o instalado
 
-Evidência: `scripts/sql.ps1:58`, `scripts/sql.ps1:64`.
+EvidÃªncia: `scripts/sql.ps1:58`, `scripts/sql.ps1:64`.
 
-## 5. Observabilidade prática
-## 5.1 E2E de navegação e hubs
+## 5. Observabilidade prÃ¡tica
+## 5.1 E2E de navegaÃ§Ã£o e hubs
 - `e2e/navigation-smoke.spec.ts`
 - `e2e/tool-hubs.spec.ts`
 
-## 5.2 Perf suites disponíveis
+## 5.2 Perf suites disponÃ­veis
 - `e2e/perf-api-map.spec.ts`
 - `e2e/perf-island-progressive.spec.ts`
 - `e2e/perf-routes-all.spec.ts`
 - `e2e/perf-real-traffic-admin.spec.ts`
 
-(fonte: árvore `e2e/`)
+(fonte: Ã¡rvore `e2e/`)
 
 ## 6. Procedimento de incident response (curto)
-1. Confirmar escopo (frontend, function específica, banco, stripe).
-2. Validar variáveis de ambiente relacionadas.
-3. Reproduzir com endpoint mínimo e idempotency key nova.
-4. Se impacto financeiro, pausar operações internas sensíveis e usar admin endpoints para auditoria (`/admin/user/*`).
-5. Aplicar correção, rodar smoke/e2e, redeploy controlado.
+1. Confirmar escopo (frontend, function especÃ­fica, banco, stripe).
+2. Validar variÃ¡veis de ambiente relacionadas.
+3. Reproduzir com endpoint mÃ­nimo e idempotency key nova.
+4. Se impacto financeiro, pausar operaÃ§Ãµes internas sensÃ­veis e usar admin endpoints para auditoria (`/admin/user/*`).
+5. Aplicar correÃ§Ã£o, rodar smoke/e2e, redeploy controlado.
 
-Base técnica:
+Base tÃ©cnica:
 - idempotency em commerce. (fonte: `src/lib/commerce/client.ts:57`, `supabase/functions/commerce/index.ts:721`)
 - admin financial endpoints. (fonte: `supabase/functions/commerce/index.ts:1662`)
 
-## 7. Mudanças seguras (playbook)
+## 7. MudanÃ§as seguras (playbook)
 ### Backend function change
-- atualizar função
+- atualizar funÃ§Ã£o
 - revisar envs
 - atualizar OpenAPI
 - testar endpoint isolado
@@ -150,13 +150,13 @@ Base técnica:
 - validar tool cost mapping
 - rodar `test` + `test:e2e`
 
-Evidência:
+EvidÃªncia:
 - rotas. (fonte: `src/App.tsx:103`)
 - tool registry. (fonte: `src/tool-hubs/registry.ts:24`)
 - costs map. (fonte: `src/lib/commerce/toolCosts.ts:152`)
 
-## 8. Itens sem definição operacional explícita
-- SLO/SLA oficial versionado no repositório.
-- Stack de observabilidade externa (Datadog, Grafana, etc.) configurada via código.
+## 8. Itens sem definiÃ§Ã£o operacional explÃ­cita
+- SLO/SLA oficial versionado no repositÃ³rio.
+- Stack de observabilidade externa (Datadog, Grafana, etc.) configurada via cÃ³digo.
 
-Status: **Não determinado a partir do código**.
+Status: **NÃ£o determinado a partir do cÃ³digo**.

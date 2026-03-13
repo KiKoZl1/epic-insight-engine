@@ -1,20 +1,20 @@
 # Payments Gateway (Commerce)
 
-DocumentaÁ„o aprofundada do subsistema de pagamento, crÈditos e antiabuso.
+Documenta√ß√£o aprofundada do subsistema de pagamento, cr√©ditos e antiabuso.
 
-## 1. Vis„o geral
-O gateway de pagamentos est· centralizado em `supabase/functions/commerce/index.ts`.
+## 1. Vis√£o geral
+O gateway de pagamentos est√° centralizado em `supabase/functions/commerce/index.ts`.
 Ele unifica:
-- autenticaÁ„o de usu·rio
-- cobranÁa por uso de tools
+- autentica√ß√£o de usu√°rio
+- cobran√ßa por uso de tools
 - assinatura e packs via Stripe
 - webhook processing
-- operaÁıes financeiras administrativas
+- opera√ß√µes financeiras administrativas
 
 (fonte: `supabase/functions/commerce/index.ts:1555`)
 
-## 2. Endpoints e superfÌcies
-### 2.1 Cat·logo e crÈditos
+## 2. Endpoints e superf√≠cies
+### 2.1 Cat√°logo e cr√©ditos
 - `GET /functions/v1/commerce/catalog/tool-costs`
 - `GET /functions/v1/commerce/me/credits`
 - `GET /functions/v1/commerce/me/credits/summary`
@@ -23,7 +23,7 @@ Ele unifica:
 
 (fonte: `supabase/functions/commerce/index.ts:1563`)
 
-### 2.2 CobranÁa por execuÁ„o
+### 2.2 Cobran√ßa por execu√ß√£o
 - `POST /functions/v1/commerce/tools/execute`
 - `POST /functions/v1/commerce/tools/reverse`
 
@@ -43,22 +43,22 @@ Ele unifica:
 
 (fonte: `supabase/functions/commerce/index.ts:1662`)
 
-## 3. Modelo de autenticaÁ„o e autorizaÁ„o
-### 3.1 Contexto de usu·rio
-- FunÁ„o resolve usu·rio a partir de bearer token + leitura de role.
-- PapÈis s„o reduzidos em flags (`isAdmin`, `isEditor`).
+## 3. Modelo de autentica√ß√£o e autoriza√ß√£o
+### 3.1 Contexto de usu√°rio
+- Fun√ß√£o resolve usu√°rio a partir de bearer token + leitura de role.
+- Pap√©is s√£o reduzidos em flags (`isAdmin`, `isEditor`).
 
 (fonte: `supabase/functions/commerce/index.ts:252`, `supabase/functions/_shared/commerceAuthz.ts:11`)
 
 ### 3.2 Regras de acesso
-- Endpoints `me/*` e `tools/*` exigem usu·rio autenticado.
+- Endpoints `me/*` e `tools/*` exigem usu√°rio autenticado.
 - Endpoints `admin/*` exigem `requireFinancialAdmin`.
-- Endpoints `internal/jobs/*` exigem `x-commerce-internal-secret` v·lido ou admin.
+- Endpoints `internal/jobs/*` exigem `x-commerce-internal-secret` v√°lido ou admin.
 
 (fonte: `supabase/functions/commerce/index.ts:280`, `supabase/functions/commerce/index.ts:284`)
 
-## 4. Fluxo de execuÁ„o de tools (crÈdito por consumo)
-## 4.1 RequisiÁ„o frontend
+## 4. Fluxo de execu√ß√£o de tools (cr√©dito por consumo)
+## 4.1 Requisi√ß√£o frontend
 Frontend envia:
 - `Authorization: Bearer <session token>`
 - `Idempotency-Key`
@@ -70,14 +70,14 @@ Frontend envia:
 1. Valida `idempotency_key` e `tool_code`.
 2. Garante conta (`commerce_ensure_account`).
 3. Calcula hash do payload.
-4. Debita crÈditos (`commerce_debit_tool_credits`).
+4. Debita cr√©ditos (`commerce_debit_tool_credits`).
 5. Se tool for WidgetKit (`psd_to_umg`, `umg_to_verse`): marca sucesso `client_local`.
-6. Caso contr·rio, faz dispatch para funÁ„o tgis mapeada.
-7. Em falha elegÌvel, faz auto-reverse (`commerce_reverse_operation`).
+6. Caso contr√°rio, faz dispatch para fun√ß√£o tgis mapeada.
+7. Em falha eleg√≠vel, faz auto-reverse (`commerce_reverse_operation`).
 8. Marca resultado de tentativa.
 
-EvidÍncia:
-- validaÁ„o e dÈbito. (fonte: `supabase/functions/commerce/index.ts:724`)
+Evid√™ncia:
+- valida√ß√£o e d√©bito. (fonte: `supabase/functions/commerce/index.ts:724`)
 - branch client_local WidgetKit. (fonte: `supabase/functions/commerce/index.ts:761`)
 - dispatch para tgis. (fonte: `supabase/functions/commerce/index.ts:784`)
 - auto-reversal. (fonte: `supabase/functions/commerce/index.ts:818`)
@@ -91,8 +91,8 @@ EvidÍncia:
 
 (fonte: `supabase/functions/commerce/index.ts:36`, `supabase/functions/commerce/index.ts:761`)
 
-## 5. Custos e cat·logo
-### 5.1 Custos padr„o frontend
+## 5. Custos e cat√°logo
+### 5.1 Custos padr√£o frontend
 - `surprise_gen: 15`
 - `edit_studio: 4`
 - `camera_control: 3`
@@ -102,13 +102,13 @@ EvidÍncia:
 
 (fonte: `src/lib/commerce/toolCosts.ts:11`)
 
-### 5.2 Custos din‚micos backend
-Commerce pode entregar custos via `commerce_config` e endpoint de cat·logo.
+### 5.2 Custos din√¢micos backend
+Commerce pode entregar custos via `commerce_config` e endpoint de cat√°logo.
 
 (fonte: `supabase/functions/commerce/index.ts:542`, `supabase/functions/commerce/index.ts:1563`)
 
 ## 6. Stripe billing
-## 6.1 CriaÁ„o de checkout session
+## 6.1 Cria√ß√£o de checkout session
 - Usa `STRIPE_SECRET_KEY`.
 - Monta request para `https://api.stripe.com/v1/checkout/sessions`.
 
@@ -116,7 +116,7 @@ Commerce pode entregar custos via `commerce_config` e endpoint de cat·logo.
 
 ## 6.2 Assinatura PRO
 - Usa `STRIPE_PRICE_PRO_MONTHLY`.
-- Salva sess„o e metadados para reconciliaÁ„o.
+- Salva sess√£o e metadados para reconcilia√ß√£o.
 
 (fonte: `supabase/functions/commerce/index.ts:1085`)
 
@@ -126,23 +126,23 @@ Commerce pode entregar custos via `commerce_config` e endpoint de cat·logo.
 (fonte: `supabase/functions/commerce/index.ts:1130`)
 
 ## 6.4 Webhook
-- Header `stripe-signature` obrigatÛrio.
-- Verifica assinatura e toler‚ncia de tempo.
+- Header `stripe-signature` obrigat√≥rio.
+- Verifica assinatura e toler√¢ncia de tempo.
 - Processa eventos de checkout/subscription/invoice e sincroniza estado local.
 
 (fonte: `supabase/functions/commerce/index.ts:1179`, `supabase/functions/commerce/index.ts:564`)
 
 ## 7. Antiabuso e rate limit
-- Device fingerprint È coletado no client e enviado ao backend.
+- Device fingerprint √© coletado no client e enviado ao backend.
 - Rate limits por escopo controlados por env vars `COMMERCE_RATE_LIMIT_*`.
-- Abuse review e suspens„o via endpoints admin.
+- Abuse review e suspens√£o via endpoints admin.
 
-EvidÍncia:
+Evid√™ncia:
 - fingerprint transport. (fonte: `src/lib/commerce/client.ts:56`)
 - limits por escopo. (fonte: `.env.example:45`, `supabase/functions/commerce/index.ts:1594`)
 - abuse-review/suspend. (fonte: `supabase/functions/commerce/index.ts:1687`)
 
-## 8. Vari·veis de ambiente crÌticas
+## 8. Vari√°veis de ambiente cr√≠ticas
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_PRO_MONTHLY`
@@ -155,23 +155,23 @@ EvidÍncia:
 
 (fonte: `.env.example:31`)
 
-## 9. OperaÁ„o e troubleshooting
+## 9. Opera√ß√£o e troubleshooting
 ### 9.1 Erros comuns
-- `missing_user_session`: sess„o frontend inv·lida/expirada.
-- `missing_idempotency_key`: client n„o enviou chave.
+- `missing_user_session`: sess√£o frontend inv√°lida/expirada.
+- `missing_idempotency_key`: client n√£o enviou chave.
 - `INSUFFICIENT_CREDITS`: saldo insuficiente para tool.
-- `stripe_not_configured`: segredo Stripe n„o definido.
+- `stripe_not_configured`: segredo Stripe n√£o definido.
 - `stripe_webhook_secret_not_configured`: webhook secret ausente.
 
-EvidÍncia:
+Evid√™ncia:
 - checagens de erro no client/backend. (fonte: `src/lib/commerce/client.ts:43`, `supabase/functions/commerce/index.ts:724`, `supabase/functions/commerce/index.ts:747`, `supabase/functions/commerce/index.ts:384`, `supabase/functions/commerce/index.ts:1182`)
 
-### 9.2 VerificaÁıes administrativas r·pidas
+### 9.2 Verifica√ß√µes administrativas r√°pidas
 - `GET /functions/v1/commerce/admin/user-lookup?email=...`
 - `GET /functions/v1/commerce/admin/user/{id}`
 - Checar ledger e abuse signals no payload admin.
 
 (fonte: `supabase/functions/commerce/index.ts:1662`, `supabase/functions/commerce/index.ts:1349`)
 
-## 10. Limites de documentaÁ„o
-- N„o h· contrato OpenAPI nativo no cÛdigo com schemas completos para todos payloads; docs detalham o comportamento observ·vel e marcam incompletude onde necess·rio.
+## 10. Limites de documenta√ß√£o
+- N√£o h√° contrato OpenAPI nativo no c√≥digo com schemas completos para todos payloads; docs detalham o comportamento observ√°vel e marcam incompletude onde necess√°rio.
