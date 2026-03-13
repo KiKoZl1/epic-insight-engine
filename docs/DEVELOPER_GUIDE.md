@@ -1,224 +1,274 @@
-# Developer Guide
+﻿# Developer Guide
 
-Guia de manutenção para qualquer dev entrar no projeto e operar com segurança.
+This guide describes how to safely change UEFN Toolkit using code-proven behavior.
 
-## 1. Stack e runtime
-- Frontend: React 18 + Vite + TypeScript + React Router + React Query. (fonte: `package.json:69`, `src/App.tsx:5`)
-- Client Supabase: `@supabase/supabase-js` com persistência de sessão no `localStorage`. (fonte: `src/integrations/supabase/client.ts:11`)
-- Backend: Supabase Edge Functions por domínio (`discover`, `dppi`, `tgis`, `commerce`). (fonte: `supabase/config.toml:3`)
-- Banco: Postgres via migrations SQL em `supabase/migrations`. (fonte: estrutura de diretórios)
-- ML pipelines: Python em `ml/dppi` e `ml/tgis`. (fonte: árvore `ml/**`)
+## 1. Engineering Baseline
 
-## 2. Serviços e responsabilidades
-### 2.1 Frontend (`src/`)
-- Composição de providers, layouts e árvore de rotas centralizada em `src/App.tsx`. (fonte: `src/App.tsx:84`)
-- Auth context em `src/hooks/useAuth.tsx` com role cache TTL de 5 minutos. (fonte: `src/hooks/useAuth.tsx:20`)
-- Guards:
-  - `ProtectedRoute` exige usuário autenticado. (fonte: `src/components/ProtectedRoute.tsx:15`)
-  - `AdminRoute` exige `admin/editor`. (fonte: `src/components/AdminRoute.tsx:16`)
+### 1.1 Application Stack
 
-### 2.2 Backend Discover/DPPI/TGIS
-- Cada function expõe endpoint `/functions/v1/<name>`.
-- `discover-data-api` é um façade para operações de dados com payload `{ op, payload }`. (fonte: `src/lib/discoverDataApi.ts:60`)
-- `verify_jwt` varia por função no deploy config, exigindo leitura endpoint-a-endpoint. (fonte: `supabase/config.toml:4`)
+- Frontend: React + Vite + TypeScript. (source: package.json:69)
+- Routing: React Router with explicit public, app, and admin trees. (source: src/App.tsx:100)
+- Client data cache: TanStack React Query. (source: src/App.tsx:5)
+- Backend API: Supabase Edge Functions by domain. (source: supabase/config.toml:3)
+- Database: PostgreSQL migrations under `supabase/migrations`. (source: supabase/migrations/20260227113000_dppi_tables.sql:3)
 
-### 2.3 Backend Commerce
-- Router HTTP interno em uma única Edge Function (`commerce`). (fonte: `supabase/functions/commerce/index.ts:1555`)
-- Responsável por:
-  - catálogo/custos
-  - consulta de créditos/ledger
-  - débito/reversão de operações
-  - checkout Stripe (assinatura + packs)
-  - webhook provider
-  - admin financeiro e jobs internos
+### 1.2 Source of Truth Rule
 
-(fonte: `supabase/functions/commerce/index.ts:1563`)
+Always treat these as authoritative, in order:
 
-### 2.4 ML / Workers
-- DPPI: treinamento/inferência/drift/monitoring em `ml/dppi/**`. (fonte: árvore `ml/dppi`)
-- TGIS: pipelines de clusterização/training/runtime worker em `ml/tgis/**`. (fonte: árvore `ml/tgis`)
-- Script de bootstrap de worker TGIS com preflight e opcional AI Toolkit: `scripts/setup_tgis.sh`. (fonte: `scripts/setup_tgis.sh:176`)
+1. Migrations for schema and RPC contracts.
+2. Edge function code for API behavior.
+3. Frontend call sites for actual usage assumptions.
+4. Docs only after code validation.
 
-## 3. Fluxos principais do produto
-### 3.1 Fluxo público (sem login)
-- Usuário acessa `/`, `/discover`, `/reports`, hubs públicos de tools.
-- Subtools protegidas disparam prompt de auth em vez de acesso direto.
+## 2. Route and Access Model
 
-Evidência:
-- Rotas públicas em `App.tsx`. (fonte: `src/App.tsx:103`)
-- Teste e2e de hub público e prompt de auth. (fonte: `e2e/tool-hubs.spec.ts:5`)
+### 2.1 Public Surface
 
-### 3.2 Fluxo autenticado (workspace)
-- Usuário autenticado acessa `/app` e subrotas analíticas e ferramentas.
-- Auth e role são hidratados a partir de `supabase.auth` + tabela `user_roles`.
+Public routes are mounted in app root and do not require auth.
 
-Evidência:
-- Rotas app. (fonte: `src/App.tsx:116`)
-- Carga de role via `from("user_roles")`. (fonte: `src/hooks/useAuth.tsx:81`)
+Evidence: `/`, `/discover`, `/reports`, `/tools/*`. (source: src/App.tsx:103)
 
-### 3.3 Fluxo admin
-- Admin/editor acessa `/admin/*` (Discover, DPPI, TGIS, Commerce).
+### 2.2 Authenticated App Surface
 
-Evidência:
-- Rotas admin. (fonte: `src/App.tsx:140`)
-- Regra de acesso em `AdminRoute`. (fonte: `src/components/AdminRoute.tsx:16`)
+Workspace routes use `ProtectedRoute` and require valid session.
 
-## 4. Mapa de módulos frontend
-### 4.1 Navegação e hubs
-- Config de navegação: `src/navigation/config.ts`.
-- Catálogo de hubs e tool routes: `src/tool-hubs/registry.ts`.
-- Hubs:
-  - `analyticsTools`
-  - `thumbTools`
-  - `widgetKit`
+Evidence: `/app` route is wrapped by `ProtectedRoute`. (source: src/App.tsx:116)
 
-(fonte: `src/tool-hubs/registry.ts:4`)
+### 2.3 Admin Surface
 
-### 4.2 Integração API
-- Data API abstraction: `src/lib/discoverDataApi.ts`.
-- Commerce client: `src/lib/commerce/client.ts`.
-- Custos de tools + cache local: `src/lib/commerce/toolCosts.ts`.
+Admin routes use `AdminRoute` and require `admin` or `editor` role.
 
-(fonte: `src/lib/discoverDataApi.ts:60`, `src/lib/commerce/client.ts:68`, `src/lib/commerce/toolCosts.ts:29`)
+Evidence:
+- Guard check in component. (source: src/components/AdminRoute.tsx:16)
+- Admin route tree includes DPPI/TGIS/Commerce pages. (source: src/App.tsx:140)
 
-### 4.3 Páginas de domínio
-- Public: `src/pages/public/*`
-- App: `src/pages/*`
-- Admin: `src/pages/admin/*`
-- Thumb tools: `src/pages/thumb-tools/*`
-- WidgetKit: `src/pages/widgetkit/*`
+## 3. Change Workflow
 
-(fonte: imports em `src/App.tsx:17`)
+## 3.1 Before You Edit
 
-## 5. Mapa de módulos backend
-### 5.1 Discover
-Principais funções:
-- `discover-data-api`
-- `discover-collector`
-- `discover-report-rebuild`
-- `discover-report-ai`
-- `discover-panel-timeline`
-- `discover-rails-resolver`
+1. Identify the domain impacted (`discover`, `dppi`, `tgis`, `ralph`, `commerce`, `frontend`).
+2. Locate API boundary code first (`supabase/functions/*`).
+3. Confirm schema dependencies (`supabase/migrations/*`).
+4. Map UI call sites (`src/pages/**`, `src/lib/**`).
+5. Define migration and backward compatibility strategy.
 
-(fonte: `supabase/functions/*` e `supabase/config.toml`)
+## 3.2 During Implementation
 
-### 5.2 DPPI
-Principais funções:
-- `dppi-health`
-- `dppi-refresh-batch`
-- `dppi-train-dispatch`
-- `dppi-release-set`
-- `dppi-worker-heartbeat`
+- Prefer additive migration strategy for production-safe rollouts.
+- Keep edge handlers explicit on auth checks and error semantics.
+- Preserve idempotency for credit-impacting endpoints.
+- Update docs and OpenAPI specs after behavior changes.
 
-(fonte: `supabase/config.toml:60`)
+Evidence:
+- Frontend data helper dispatches structured ops to `discover-data-api`. (source: src/lib/discoverDataApi.ts:60)
+- Tool execution paths use backend dispatch and credit operations in commerce backend. (source: supabase/functions/commerce/index.ts:717)
 
-### 5.3 TGIS
-Principais funções:
-- `tgis-generate`
-- `tgis-edit-studio`
-- `tgis-camera-control`
-- `tgis-layer-decompose`
-- `tgis-skins-search`
-- `tgis-admin-*`
+## 3.3 After Implementation
 
-(fonte: `supabase/config.toml:75`)
+- Run lint/tests.
+- Validate admin pages that consume changed tables/functions.
+- Re-run any affected worker tick in dry/local mode if relevant.
+- Update docs with source references.
 
-### 5.4 Commerce
-- Ver detalhes completos em `docs/PAYMENTS_GATEWAY.md` e `docs/BACKEND_B_COMMERCE.md`.
+## 4. Domain-Specific Development Notes
 
-## 6. Setup de dev (passo a passo)
-1. `npm install`
-2. `cp .env.example .env`
-3. preencher variáveis mínimas (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)
-4. opcional: `npm run migration:set-target -- -ProjectRef ...`
-5. `npm run dev`
+### 4.1 Discover Domain
 
-Evidência:
-- Scripts npm. (fonte: `package.json:7`)
-- Variáveis obrigatórias e exemplos. (fonte: `.env.example:1`)
-- Script de target/migração. (fonte: `package.json:22`)
+- Core gateway from frontend to data operations is `discover-data-api` wrapper.
+- If changing payload shape, update both wrapper and function contract.
 
-## 7. Testes e validação
-### 7.1 Frontend
-- `npm run test`
-- `npm run test:watch`
+Evidence: wrapper call shape `{ op, payload }`. (source: src/lib/discoverDataApi.ts:62)
 
-### 7.2 E2E
-- `npm run test:e2e`
-- `npm run test:e2e:headed`
-- `npm run test:e2e:report`
+### 4.2 DPPI Domain
 
-Evidência:
-- scripts. (fonte: `package.json:12`)
+- Training lifecycle uses queue table (`dppi_training_log`) and model registry.
+- Admin UI expects health RPC payload plus recent logs.
+- Release channel updates should enforce model/calibration/drift checks.
 
-### 7.3 Cenários cobertos na suite
-- smoke de navegação pública/protegida
-- comportamento dos hubs de ferramentas
-- perf routes / perf admin flows
+Evidence:
+- DPPI training queue insertion in dispatch handler. (source: supabase/functions/dppi-train-dispatch/index.ts:163)
+- DPPI health aggregates `admin_dppi_overview` and readiness RPC. (source: supabase/functions/dppi-health/index.ts:111)
+- Release handler checks model registry/calibration/drift and writes feedback event. (source: supabase/functions/dppi-release-set/index.ts:202)
 
-Evidência:
-- arquivos em `e2e/`. (fonte: `e2e/navigation-smoke.spec.ts:1`, `e2e/tool-hubs.spec.ts:1`)
+### 4.3 TGIS Domain
 
-## 8. SQL e dados
-### 8.1 Executar SQL remoto
-```powershell
-scripts\run-sql.bat -Query "select now();"
-scripts\run-sql.bat -File supabase\migrations\20260312083000_commerce_foundation_v1.sql
-```
+- Generation path performs auth resolution, commerce gate, intent/prompt pipeline, and logging.
+- Admin training path manages queued/running/success/failed transitions in DB.
+- Model promotion/rollback endpoints are role-gated.
 
-Evidência:
-- SQL runner exige `SUPABASE_DB_URL`. (fonte: `scripts/sql.ps1:58`)
+Evidence:
+- Commerce gateway enforcement in generate function. (source: supabase/functions/tgis-generate/index.ts:231)
+- Runtime config read (`nano_model`, `openrouter_model`, ref limits). (source: supabase/functions/tgis-generate/index.ts:754)
+- Training queue processor controls state transitions. (source: ml/tgis/runtime/process_training_queue.py:470)
+- Admin promote/rollback handlers check `user_roles`. (source: supabase/functions/tgis-admin-promote-model/index.ts:66, supabase/functions/tgis-admin-rollback-model/index.ts:66)
 
-### 8.2 Export de tabelas
-```bash
-npm run migration:export:tables
-```
-- Exporta CSVs para `migration_artifacts/exports`.
+### 4.4 Ralph Domain
 
-Evidência:
-- script e outputDir. (fonte: `package.json:23`, `scripts/export_supabase_tables.mjs:133`)
+- Ralph local runner is the orchestrator and writes run/action/eval/incident records via RPC.
+- Memory subsystem uses snapshots + semantic documents.
 
-## 9. Segurança e autorização (visão prática)
-- App roles: `admin`, `editor`, `client`. (fonte: `src/hooks/useAuth.tsx:5`)
-- Admin navigation/UI depende de role hidratada do backend.
-- Commerce reforça autorização em backend (não depende só de `verify_jwt`).
+Evidence:
+- Runner calls `start_ralph_run`, `record_ralph_action`, `finish_ralph_run`. (source: scripts/ralph_local_runner.mjs:1094)
+- Semantic search usage in runner. (source: scripts/ralph_local_runner.mjs:1268)
+- Memory document upsert endpoint exists. (source: supabase/migrations/20260218182000_ralph_semantic_memory.sql:86)
 
-Evidência:
-- `requireFinancialAdmin` e checks de rota. (fonte: `supabase/functions/commerce/index.ts:280`, `supabase/functions/commerce/index.ts:1662`)
+### 4.5 Commerce Domain
 
-## 10. Manutenção contínua
-### 10.1 Quando mexer em frontend
-- Atualizar rotas em `src/App.tsx`.
-- Validar nav/hubs (`src/navigation/config.ts`, `src/tool-hubs/registry.ts`).
-- Rodar `npm run test` e `npm run test:e2e`.
+- Commerce endpoint is a single edge function with internal routing.
+- Tool execution includes debiting and optional reversal logic.
 
-### 10.2 Quando mexer em functions
-- Atualizar função em `supabase/functions/<name>/index.ts`.
-- Garantir env vars correspondentes em `.env.example` quando necessário.
-- Se endpoint mudou, atualizar OpenAPI (`docs/openapi-backend-a.yaml` ou `docs/openapi-backend-b-commerce.yaml`).
+Evidence:
+- Route handler block in commerce backend. (source: supabase/functions/commerce/index.ts:1563)
+- Debit path in tool execute flow. (source: supabase/functions/commerce/index.ts:735)
 
-### 10.3 Quando mexer em cobrança
-- Revisar:
-  - `src/lib/commerce/client.ts`
-  - `src/lib/commerce/toolCosts.ts`
-  - `supabase/functions/commerce/index.ts`
-- Validar idempotência + reversão automática em falha.
+## 5. Frontend Conventions
 
-Evidência:
-- `Idempotency-Key` no client e debit/reverse no backend. (fonte: `src/lib/commerce/client.ts:57`, `supabase/functions/commerce/index.ts:735`)
+### 5.1 API Access Patterns
 
-## 11. O que ainda não está explicitamente codificado
-- Pipeline único de deploy de frontend para um provedor específico.
-- Política oficial de rollback de banco em documento único.
+- Admin pages either call edge functions via `supabase.functions.invoke` or use data wrapper (`dataSelect`, `dataRpc`).
 
-Status nestes pontos: **Não determinado a partir do código**.
+Evidence:
+- DPPI overview invokes `dppi-health`. (source: src/pages/admin/dppi/AdminDppiOverview.tsx:27)
+- TGIS overview invokes `tgis-health`. (source: src/pages/admin/tgis/AdminTgisOverview.tsx:22)
+- DPPI models page uses `dataSelect` on `dppi_model_registry`. (source: src/pages/admin/dppi/AdminDppiModels.tsx:14)
 
-## 12. Leituras obrigatórias relacionadas
-- `README.md` (onboarding geral)
-- `docs/TOOLS_CATALOG.md`
-- `docs/PAYMENTS_GATEWAY.md`
-- `docs/DEPLOYMENT_RUNBOOK.md`
-- `docs/OPERATIONS_RUNBOOK.md`
-- `docs/BACKEND_A.md`
-- `docs/BACKEND_B_COMMERCE.md`
-- `docs/DATABASE.md`
+### 5.2 Navigation and Visibility
+
+- Navigation items include role visibility constraints in central config.
+
+Evidence: admin items visible to `editor` and `admin`. (source: src/navigation/config.ts:146)
+
+## 6. Backend Conventions
+
+### 6.1 Function Auth Pattern
+
+Common edge function auth flow pattern:
+
+1. Decode bearer/apikey and allow service-role short-circuit where applicable.
+2. If not service-role, resolve user via Supabase auth.
+3. Lookup role in `user_roles`.
+4. Enforce domain role requirement (`admin/editor` for admin operations).
+
+Evidence:
+- DPPI health role check path. (source: supabase/functions/dppi-health/index.ts:49)
+- TGIS admin role check path. (source: supabase/functions/tgis-admin-sync-manifest/index.ts:42)
+
+### 6.2 Error Pattern
+
+Most handlers return `{ success: false, error: <message> }` on failure.
+
+Evidence:
+- DPPI handlers return structured error payloads. (source: supabase/functions/dppi-health/index.ts:145)
+- TGIS handlers return structured error payloads. (source: supabase/functions/tgis-training-webhook/index.ts:170)
+
+## 7. Database and Migration Conventions
+
+### 7.1 DPPI
+
+- Tables prefixed `dppi_*`.
+- RPCs enforce service role for write-heavy operations.
+- Admin snapshot function `admin_dppi_overview` centralizes overview counters.
+
+Evidence:
+- DPPI table creation. (source: supabase/migrations/20260227113000_dppi_tables.sql:3)
+- Service role guard function. (source: supabase/migrations/20260227150000_dppi_rpc_and_policies.sql:21)
+- Overview function. (source: supabase/migrations/20260227150000_dppi_rpc_and_policies.sql:736)
+
+### 7.2 TGIS
+
+- Foundation migration defines core cluster/training/model/generation tables and RPCs.
+- Follow-up migrations extend trainer integration and thumb tool storage.
+
+Evidence:
+- Foundation migration. (source: supabase/migrations/20260228103000_tgis_foundation.sql:3)
+- FAL trainer fields migration. (source: supabase/migrations/20260302083000_tgis_fal_trainer_i2i.sql:1)
+- Thumb tools foundation migration. (source: supabase/migrations/20260304123000_tgis_thumb_tools_foundation.sql:1)
+
+### 7.3 Ralph
+
+- Ops tables track runs, actions, evals, incidents.
+- Memory context and semantic memory are separate migrations.
+
+Evidence:
+- Ops schema migration. (source: supabase/migrations/20260216123000_ralph_ops_foundation.sql:3)
+- Memory context schema migration. (source: supabase/migrations/20260218154000_ralph_memory_context.sql:7)
+- Semantic memory migration. (source: supabase/migrations/20260218182000_ralph_semantic_memory.sql:6)
+
+## 8. ML and Worker Development
+
+### 8.1 DPPI Worker
+
+Worker tick stages:
+
+- heartbeat
+- train queue execution
+- inference
+- drift
+
+Evidence: stage list in orchestrator. (source: ml/dppi/pipelines/worker_tick.py:35)
+
+### 8.2 TGIS Worker
+
+Worker tick stages:
+
+- heartbeat
+- training queue process
+- cost sync
+
+Evidence: stage list in orchestrator. (source: ml/tgis/runtime/worker_tick.py:30)
+
+### 8.3 Training Gates
+
+TGIS queue processor can fail queued runs for:
+
+- runtime training disabled
+- recluster gate failure
+- missing webhook URL
+- submit failure
+
+Evidence:
+- `training_disabled_in_runtime_config`. (source: ml/tgis/runtime/process_training_queue.py:435)
+- `recluster_gate_failed:*`. (source: ml/tgis/runtime/process_training_queue.py:459)
+- `missing_tgis_webhook_url`. (source: ml/tgis/runtime/process_training_queue.py:529)
+- `fal_train_submit_failed:*`. (source: ml/tgis/runtime/process_training_queue.py:603)
+
+## 9. Documentation and API Update Rules
+
+When changing behavior, update these artifacts in same branch:
+
+- Relevant markdown docs under `docs/`.
+- OpenAPI files (`openapi-backend-a.yaml` or `openapi-backend-b-commerce.yaml`) when request/response changes.
+- Changelog entries for added/removed/breaking API behavior.
+- `.doc-agent/state.json` snapshot for doc automation consistency.
+
+## 10. Operational Safety Checklist
+
+Before merge:
+
+1. Confirm role and auth checks for any changed admin endpoint.
+2. Confirm schema dependencies exist in migrations.
+3. Confirm frontend call sites match request/response shape.
+4. Confirm cost-impacting flows preserve idempotency and safe failure semantics.
+5. Confirm worker paths log enough state for debugging.
+6. Confirm docs reference updated file lines.
+
+## 11. Links to Deep Domain Docs
+
+- `ADMIN_CENTER.md`
+- `DDPI_ML_SYSTEM.md`
+- `TGIS_LLM_ML_SYSTEM.md`
+- `RALPH_SYSTEM.md`
+- `LLM_ML_RUNBOOK.md`
+- `TOOLS_CATALOG.md`
+
+## 12. Unknowns Policy
+
+If you cannot prove a claim in code, mark it explicitly as `Not determined from code`.
+
+Examples currently marked unknown:
+
+- Complete external cloud deployment rollout contract.
+- Out-of-repo incident policy documents.
+
+

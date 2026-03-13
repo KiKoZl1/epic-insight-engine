@@ -256,13 +256,35 @@ Evidence:
 - Build script command. (source: package.json:8)
 - Vite usage as build system. (source: package.json:104)
 
-### 9.2 Edge Functions
+### 9.2 Deploy Order (Code-Derived)
 
-Functions are deployed with Supabase CLI.
+Recommended order from repository structure:
 
-Evidence: repo includes function definitions and config mapping. (source: supabase/config.toml:3)
+1. Build and verify frontend artifacts.
+2. Apply database migrations.
+3. Deploy/update edge functions.
+4. Validate admin and tool flows.
+5. Resume/monitor DPPI and TGIS worker loops.
 
-### 9.3 Worker Operations
+Evidence:
+- Frontend build scripts. (source: package.json:8)
+- Migration-driven schema model. (source: supabase/migrations/20260227113000_dppi_tables.sql:3, supabase/migrations/20260228103000_tgis_foundation.sql:3)
+- Function inventory. (source: supabase/config.toml:3)
+- Worker tick entrypoints. (source: ml/dppi/pipelines/worker_tick.py:25, ml/tgis/runtime/worker_tick.py:11)
+
+### 9.3 Edge Functions and API Runtime
+
+Function domains currently defined:
+
+- Discover/public data APIs
+- DPPI domain
+- TGIS domain
+- Commerce domain
+
+Evidence:
+- Function declarations and JWT flags. (source: supabase/config.toml:3, supabase/config.toml:60, supabase/config.toml:75, supabase/config.toml:126)
+
+### 9.4 Worker Operations
 
 DPPI worker tick orchestrates heartbeat, queue processing, inference, and drift checks.
 
@@ -271,6 +293,17 @@ Evidence: orchestration step list. (source: ml/dppi/pipelines/worker_tick.py:34)
 TGIS worker tick orchestrates heartbeat, training queue processing, and cost sync.
 
 Evidence: orchestration step list. (source: ml/tgis/runtime/worker_tick.py:30)
+
+### 9.5 Detailed Deployment/Operations Guides
+
+For complete step-by-step operator instructions use:
+
+- `docs/DEPLOYMENT_RUNBOOK.md`
+- `docs/OPERATIONS_RUNBOOK.md`
+- `docs/PAYMENTS_GATEWAY.md`
+- `docs/LLM_ML_RUNBOOK.md`
+
+These files contain expanded operational procedures and validation checklists.
 
 ## 10. Domain Documentation
 
@@ -283,6 +316,10 @@ Primary docs that cover full domain behavior:
 - `docs/LLM_ML_RUNBOOK.md`
 - `docs/TOOLS_CATALOG.md`
 - `docs/DEVELOPER_GUIDE.md`
+- `docs/tools/README.md` (deep-dive doc per tool)
+- `docs/BRAND_AND_DESIGN_STANDARDS.md`
+- `docs/TOOL_ARCHITECTURE_TEMPLATE.md`
+- `docs/SYSTEM_COVERAGE_MATRIX.md`
 
 See index: `docs/README.md`.
 
