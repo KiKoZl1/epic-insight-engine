@@ -1,12 +1,11 @@
 import { useMemo, useState } from "react";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import { SupportChat } from "@/components/support/SupportChat";
@@ -69,16 +68,26 @@ export function SupportChatWidget() {
           </DrawerContent>
         </Drawer>
       ) : (
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild>{trigger}</SheetTrigger>
-          <SheetContent side="right" className={cn("w-[420px] max-w-[95vw] border-l border-border/70 bg-background px-3 py-3")}>
-            <SheetHeader className="px-1 pb-2 pt-1">
-              <SheetTitle>{t("support.widget.title")}</SheetTitle>
-              <SheetDescription>{t("support.widget.description")}</SheetDescription>
-            </SheetHeader>
-            <SupportChat mode="widget" allowAnonymous={false} className="h-[calc(100dvh-6rem)] min-h-0" />
-          </SheetContent>
-        </Sheet>
+        <>
+          {open ? (
+            <div className="absolute bottom-16 right-0 z-[96] w-[420px] max-w-[calc(100vw-2rem)]">
+              <div className="relative rounded-2xl border border-border/70 bg-background/98 p-3 shadow-[0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  aria-label="Close support chat"
+                  className="absolute right-3 top-3 h-8 w-8 rounded-full border border-border/70"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+                <SupportChat mode="widget" allowAnonymous={false} className="h-[min(72vh,680px)] max-h-[calc(100dvh-8rem)] min-h-0" />
+              </div>
+            </div>
+          ) : null}
+          <div onClick={() => setOpen((prev) => !prev)}>{trigger}</div>
+        </>
       )}
     </div>
   );
